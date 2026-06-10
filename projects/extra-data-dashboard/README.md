@@ -8,7 +8,7 @@ Because this project uses `fetch`, serve the folder instead of opening the file
 directly:
 
 ```bash
-python -m http.server 8000
+python3 -m http.server 8000
 ```
 
 Then visit `http://127.0.0.1:8000`.

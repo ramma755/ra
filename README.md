@@ -32,21 +32,21 @@ npm run dev
 
 # Python CLI
 cd projects/python-cli-tool
-python -m venv .venv
+python3 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+python3 -m pip install -e .
 project-tool stats "hello from the CLI"
 
 # FastAPI app
 cd projects/fastapi-app
-python -m venv .venv
+python3 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+python3 -m pip install -e .
 fastapi-starter
 ```
 
 Static projects can be opened directly in a browser or served with:
 
 ```bash
-python -m http.server 8000
+python3 -m http.server 8000
 ```

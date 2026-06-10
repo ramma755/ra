@@ -5,9 +5,9 @@ An installable Python command-line tool with two commands.
 ## Install locally
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+python3 -m pip install -e .
 ```
 
 ## Use

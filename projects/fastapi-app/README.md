@@ -5,9 +5,9 @@ A typed FastAPI service with health, list, and create endpoints.
 ## Run
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+python3 -m pip install -e .
 fastapi-starter
 ```
 
