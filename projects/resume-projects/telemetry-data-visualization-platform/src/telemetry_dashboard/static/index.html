@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Telemetry Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Launch vehicle telemetry</p>
+        <h1>Real-time mission dashboard</h1>
+        <p>
+          Simulated WebSocket telemetry powers live status cards and D3 charts
+          for altitude and velocity.
+        </p>
+      </section>
+
+      <section class="cards" aria-label="Live telemetry values">
+        <article><span>Phase</span><strong id="phase">loading</strong></article>
+        <article><span>Fuel</span><strong id="fuel">--</strong></article>
+        <article><span>Engine temp</span><strong id="temperature">--</strong></article>
+        <article><span>Acceleration</span><strong id="acceleration">--</strong></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Altitude and velocity</h2>
+          <span id="connection">connecting</span>
+        </div>
+        <svg id="chart" viewBox="0 0 820 360" role="img" aria-label="Telemetry chart"></svg>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>

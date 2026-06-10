@@ -1,0 +1,17 @@
+diff --git a/service.py b/service.py
+index 1234567..89abcde 100644
+--- a/service.py
++++ b/service.py
+@@ -1,4 +1,12 @@
+ def handle_payload(payload):
++    # TODO: validate caller permissions
++    try:
++        transformed = eval(payload["transform"])
++    except:
++        transformed = None
++
++    return {
++        "status": "ok",
++        "result": transformed,
++    }
+-    return {"status": "ok"}
