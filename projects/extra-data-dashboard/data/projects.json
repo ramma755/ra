@@ -1,0 +1,25 @@
+{
+  "updatedAt": "2026-06-10",
+  "projects": [
+    {
+      "name": "React App",
+      "status": "ready",
+      "progress": 85
+    },
+    {
+      "name": "Express API",
+      "status": "ready",
+      "progress": 78
+    },
+    {
+      "name": "Python Tooling",
+      "status": "ready",
+      "progress": 92
+    },
+    {
+      "name": "Launch Website",
+      "status": "planned",
+      "progress": 42
+    }
+  ]
+}

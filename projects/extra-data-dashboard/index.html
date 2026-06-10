@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Dashboard Starter</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Anything else</p>
+        <h1>Data dashboard starter</h1>
+        <p>
+          A dependency-free dashboard that loads local JSON and renders status
+          cards, summary metrics, and a progress list.
+        </p>
+      </section>
+
+      <section class="metrics" id="metrics" aria-label="Summary metrics"></section>
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Project progress</h2>
+          <span id="updated-at"></span>
+        </div>
+        <div id="project-list"></div>
+      </section>
+    </main>
+
+    <script src="dashboard.js"></script>
+  </body>
+</html>
