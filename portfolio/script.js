@@ -73,6 +73,33 @@ const skills = [
   },
 ];
 
+const tools = [
+  {
+    title: "Electronics and circuit simulation",
+    description:
+      "Tools for PCB design, analog/digital circuit analysis, and electronics prototyping.",
+    items: ["KiCad", "LTspice", "Ngspice", "Qucs-S"],
+  },
+  {
+    title: "CAD, BIM, and modeling",
+    description:
+      "Design tools for engineering drawings, BIM workflows, parametric models, and technical layouts.",
+    items: ["FreeCAD (BIM/IFC)", "LibreCAD", "OpenSCAD", "Vectorworks"],
+  },
+  {
+    title: "Visualization and simulation",
+    description:
+      "Scientific visualization and 3D tooling for technical analysis and presentation work.",
+    items: ["ParaView", "3D Slicer"],
+  },
+  {
+    title: "Game and media production",
+    description:
+      "Game engines, 3D frameworks, and media tools for interactive portfolio and prototype work.",
+    items: ["Defold", "Solar2D", "Panda3D", "Lightworks"],
+  },
+];
+
 function renderProjects() {
   const grid = document.querySelector("#project-grid");
   grid.innerHTML = projects
@@ -129,6 +156,23 @@ function renderSkills() {
     .join("");
 }
 
+function renderTools() {
+  const grid = document.querySelector("#tools-grid");
+  grid.innerHTML = tools
+    .map(
+      (toolGroup) => `
+        <article class="tool-card">
+          <h3>${toolGroup.title}</h3>
+          <p>${toolGroup.description}</p>
+          <div class="tool-tags">
+            ${toolGroup.items.map((item) => `<span class="tag">${item}</span>`).join("")}
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function setupMenu() {
   const button = document.querySelector(".menu-button");
   const nav = document.querySelector("#site-nav");
@@ -147,4 +191,5 @@ function setupMenu() {
 renderProjects();
 renderExperience();
 renderSkills();
+renderTools();
 setupMenu();

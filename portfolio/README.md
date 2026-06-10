@@ -3,6 +3,26 @@
 A static portfolio website built from the resume details. It uses plain HTML,
 CSS, and JavaScript, so it can be hosted for free without a backend.
 
+## Engineering tools included
+
+The main portfolio includes an engineering toolkit section with CAD, BIM,
+simulation, electronics, visualization, and game/media tools:
+
+- KiCad
+- LTspice
+- Ngspice
+- Qucs-S
+- FreeCAD (BIM/IFC)
+- LibreCAD
+- OpenSCAD
+- Vectorworks
+- ParaView
+- 3D Slicer
+- Defold
+- Solar2D
+- Panda3D
+- Lightworks
+
 ## Run locally
 
 ```bash
