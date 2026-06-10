@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Canvas Game Starter</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="intro">
+        <p class="eyebrow">Canvas game</p>
+        <h1>Star Catcher</h1>
+        <p>
+          Move with the arrow keys or A/D. Catch stars, avoid asteroids, and
+          press space to restart after a crash.
+        </p>
+      </section>
+
+      <canvas id="game" width="720" height="420" aria-label="Star Catcher game"></canvas>
+      <p class="status" id="status">Score: 0</p>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>

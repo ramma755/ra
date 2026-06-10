@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastapi-app-starter"
+version = "0.1.0"
+description = "A small FastAPI service starter."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+]
+
+[project.scripts]
+fastapi-starter = "app.main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
