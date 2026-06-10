@@ -11,9 +11,29 @@ python3 -m http.server 8000
 
 Open `http://127.0.0.1:8000`.
 
+## Portfolio templates
+
+The `templates/` folder contains six additional static portfolio options:
+
+### Gaming portfolios
+
+- `templates/gaming-esports.html` - competitive esports player portfolio
+- `templates/gaming-developer.html` - game developer portfolio
+- `templates/gaming-streamer.html` - streamer and gaming creator portfolio
+
+### Software engineering portfolios
+
+- `templates/software-fullstack.html` - full-stack software engineer portfolio
+- `templates/software-backend-cloud.html` - backend and cloud engineer portfolio
+- `templates/software-ai-ml.html` - AI and ML engineer portfolio
+
+Open `templates/index.html` in the browser to browse all six from one gallery.
+When hosted, the gallery will be available at `/templates/`.
+
 ## Before publishing
 
-Update the contact link in `index.html`:
+Update the placeholder contact links in `index.html` and any template you plan to
+publish:
 
 ```html
 <a class="button primary" href="mailto:hello@example.com">hello@example.com</a>

@@ -14,6 +14,15 @@ python3 -m http.server 8000
 
 Then visit `http://127.0.0.1:8000`.
 
+## Extra templates
+
+The portfolio now includes six additional templates in `portfolio/templates/`:
+
+- 3 gaming portfolios
+- 3 software engineering portfolios
+
+Open `portfolio/templates/index.html` to browse them.
+
 ## Free hosting
 
 The portfolio can be hosted for free with GitHub Pages, Netlify, Cloudflare
