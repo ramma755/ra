@@ -52,15 +52,18 @@ When hosted, the gallery will be available at `/templates/`.
 
 ## Before publishing
 
-Update the placeholder contact links in `index.html` and any template you plan to
-publish:
+The main portfolio contact button currently uses this public email:
 
 ```html
-<a class="button primary" href="mailto:hello@example.com">hello@example.com</a>
+<a class="button primary" href="mailto:rammarieirez@gmail.com">rammarieirez@gmail.com</a>
 ```
 
-Replace it with the public email, LinkedIn, or GitHub profile you want visitors
-to use.
+If you want a different contact method later, replace it with the public email,
+LinkedIn, or GitHub profile you want visitors to use.
+
+```html
+<a class="button primary" href="https://github.com/username">View GitHub profile</a>
+```
 
 ## Free hosting options
 
