@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autonomous-drone-control-system"
+version = "0.1.0"
+description = "A simulated quadcopter flight controller with PID control and sensor fusion."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+drone-sim = "drone_control.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
