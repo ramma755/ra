@@ -179,6 +179,7 @@ span {
 .project-card,
 .timeline-item,
 .skill-card,
+.tool-card,
 .contact-card {
   border: 1px solid var(--line);
   border-radius: 1.5rem;
@@ -206,7 +207,8 @@ span {
 }
 
 .metrics article,
-.skill-card {
+.skill-card,
+.tool-card {
   padding: 1.25rem;
 }
 
@@ -284,6 +286,26 @@ span {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 1rem;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.tool-card {
+  display: flex;
+  min-height: 260px;
+  flex-direction: column;
+}
+
+.tool-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 1rem;
 }
 
 .skill-card ul,
