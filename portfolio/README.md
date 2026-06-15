@@ -1,27 +1,40 @@
-# Shanice Jones Portfolio
+# David Muiruri Portfolio
 
-A static portfolio website built from the resume details. It uses plain HTML,
-CSS, and JavaScript, so it can be hosted for free without a backend.
+A static portfolio website built from David Muiruri's resume. It uses plain
+HTML, CSS, and JavaScript, so it can be hosted for free without a backend.
 
-## Engineering tools included
+## Portfolio content
 
-The main portfolio includes an engineering toolkit section with CAD, BIM,
-simulation, electronics, visualization, and game/media tools:
+The main site includes:
 
-- KiCad
-- LTspice
-- Ngspice
-- Qucs-S
-- FreeCAD (BIM/IFC)
-- LibreCAD
-- OpenSCAD
-- Vectorworks
-- ParaView
-- 3D Slicer
-- Defold
-- Solar2D
-- Panda3D
-- Lightworks
+- Professional summary and contact details
+- Resume-backed work samples:
+  - DevTask API - FastAPI, PostgreSQL, Docker, JWT, Pytest
+  - PortfolioHub - React, Node.js, MongoDB, AWS S3/EC2, GitHub Actions
+  - Pixel Dungeon - Godot 4, GDScript, procedural generation, game AI
+- AI training and game development experience
+- Education, certifications, languages, availability, and expected rate
+- Application answers for Q5 through Q12:
+  - Public work/GitHub samples
+  - Bug bounty profile status
+  - Vulnerability/CVE/advisory status
+  - Strongest engineering area
+  - Main tech stack
+  - Testing, CI/CD, deployment, and DevOps experience
+  - Cloud experience
+  - SecOps/cybersecurity experience
+
+## Public links used
+
+- GitHub: `https://github.com/davidmuiruri`
+- LinkedIn: `https://www.linkedin.com/in/david-muiruri`
+- DevTask API: `https://github.com/davidmuiruri/devtask-api`
+- PortfolioHub: `https://github.com/davidmuiruri/portfoliohub`
+- Pixel Dungeon: `https://github.com/davidmuiruri/pixel-dungeon`
+
+If any project repository is private or unavailable, keep the project card as a
+private/professional work sample description or replace the link with a public
+demo.
 
 ## Run locally
 
@@ -33,7 +46,7 @@ Open `http://127.0.0.1:8000`.
 
 ## Portfolio templates
 
-The `templates/` folder contains six additional static portfolio options:
+The `templates/` folder still contains six additional static portfolio options:
 
 ### Gaming portfolios
 
@@ -55,11 +68,11 @@ When hosted, the gallery will be available at `/templates/`.
 The main portfolio contact button currently uses this public email:
 
 ```html
-<a class="button primary" href="mailto:rammarieirez@gmail.com">rammarieirez@gmail.com</a>
+<a class="button primary" href="mailto:petermwas388@gmail.com">Email David</a>
 ```
 
-If you want a different contact method later, replace it with the public email,
-LinkedIn, or GitHub profile you want visitors to use.
+If you want a different public contact method later, replace it with the email,
+LinkedIn, or GitHub profile visitors should use.
 
 ```html
 <a class="button primary" href="https://github.com/username">View GitHub profile</a>
@@ -86,11 +99,7 @@ The site will be available at:
 https://<your-github-username>.github.io/<repo-name>/
 ```
 
-For this repository, that should be:
-
-```text
-https://ramma755.github.io/ra/
-```
+Use the Pages URL shown by GitHub after the deployment finishes.
 
 ### Option 2: Netlify
 
