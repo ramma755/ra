@@ -4,6 +4,7 @@ This folder contains a clean CAD redraw of the supplied hand sketch.
 
 - `floor_plan_autocad.dxf` - AutoCAD-compatible DXF drawing.
 - `floor_plan_preview.svg` - browser-viewable preview of the same geometry.
+- `floor_plan_architectural.pdf` - printable vector PDF version.
 
 The DXF uses millimetres and preserves the main features visible in the sketch:
 

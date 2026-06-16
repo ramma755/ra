@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "drawings"
 DXF_PATH = OUT_DIR / "floor_plan_autocad.dxf"
 SVG_PATH = OUT_DIR / "floor_plan_preview.svg"
+PDF_PATH = OUT_DIR / "floor_plan_architectural.pdf"
 
 
 LAYERS = {
@@ -518,13 +519,179 @@ def write_svg(drawing: Drawing, path: Path) -> None:
     )
 
 
+def pdf_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def hex_to_rgb(value: str) -> tuple[float, float, float]:
+    value = value.lstrip("#")
+    return tuple(int(value[index : index + 2], 16) / 255 for index in (0, 2, 4))
+
+
+def entity_bounds(entity: dict[str, object]) -> tuple[float, float, float, float]:
+    if entity["type"] == "line":
+        return (
+            min(float(entity["x1"]), float(entity["x2"])),
+            min(float(entity["y1"]), float(entity["y2"])),
+            max(float(entity["x1"]), float(entity["x2"])),
+            max(float(entity["y1"]), float(entity["y2"])),
+        )
+    if entity["type"] in {"arc", "circle"}:
+        radius = float(entity["radius"])
+        cx = float(entity["cx"])
+        cy = float(entity["cy"])
+        return cx - radius, cy - radius, cx + radius, cy + radius
+    if entity["type"] == "text":
+        height = float(entity["height"])
+        width = len(str(entity["value"])) * height * 0.62
+        x = float(entity["x"])
+        y = float(entity["y"])
+        return x - width / 2, y - height / 2, x + width / 2, y + height / 2
+    raise ValueError(f"Unsupported entity type: {entity['type']}")
+
+
+def arc_points(
+    cx: float,
+    cy: float,
+    radius: float,
+    start: float,
+    end: float,
+    segments: int = 24,
+) -> list[tuple[float, float]]:
+    if end < start:
+        end += 360
+    count = max(4, int(abs(end - start) / 90 * segments))
+    return [point_at(cx, cy, radius, start + (end - start) * index / count) for index in range(count + 1)]
+
+
+def write_pdf(drawing: Drawing, path: Path) -> None:
+    page_width = 1728.0
+    page_height = 2592.0
+    margin = 72.0
+
+    bounds = [entity_bounds(entity) for entity in drawing.entities]
+    min_x = min(bound[0] for bound in bounds)
+    min_y = min(bound[1] for bound in bounds)
+    max_x = max(bound[2] for bound in bounds)
+    max_y = max(bound[3] for bound in bounds)
+    drawing_width = max_x - min_x
+    drawing_height = max_y - min_y
+    scale = min((page_width - 2 * margin) / drawing_width, (page_height - 2 * margin) / drawing_height)
+    x_shift = margin + (page_width - 2 * margin - drawing_width * scale) / 2
+    y_shift = margin + (page_height - 2 * margin - drawing_height * scale) / 2
+
+    def tx(x: float) -> float:
+        return x_shift + (x - min_x) * scale
+
+    def ty(y: float) -> float:
+        return y_shift + (y - min_y) * scale
+
+    def stroke_setup(layer: str) -> str:
+        red, green, blue = hex_to_rgb(str(LAYERS[layer]["svg"]))
+        width = max(0.25, float(LAYERS[layer]["width"]) * scale)
+        return f"{red:.3f} {green:.3f} {blue:.3f} RG {width:.3f} w\n"
+
+    commands: list[str] = []
+    commands.append("1 1 1 rg 0 0 1728 2592 re f\n")
+
+    for entity in drawing.entities:
+        layer = str(entity["layer"])
+        commands.append(stroke_setup(layer))
+        if entity["type"] == "line":
+            commands.append(
+                f"{tx(float(entity['x1'])):.3f} {ty(float(entity['y1'])):.3f} m "
+                f"{tx(float(entity['x2'])):.3f} {ty(float(entity['y2'])):.3f} l S\n"
+            )
+        elif entity["type"] == "arc":
+            points = arc_points(
+                float(entity["cx"]),
+                float(entity["cy"]),
+                float(entity["radius"]),
+                float(entity["start"]),
+                float(entity["end"]),
+            )
+            first_x, first_y = points[0]
+            path_command = f"{tx(first_x):.3f} {ty(first_y):.3f} m "
+            for x, y in points[1:]:
+                path_command += f"{tx(x):.3f} {ty(y):.3f} l "
+            commands.append(f"{path_command}S\n")
+        elif entity["type"] == "circle":
+            points = arc_points(
+                float(entity["cx"]),
+                float(entity["cy"]),
+                float(entity["radius"]),
+                0,
+                360,
+                segments=36,
+            )
+            first_x, first_y = points[0]
+            path_command = f"{tx(first_x):.3f} {ty(first_y):.3f} m "
+            for x, y in points[1:]:
+                path_command += f"{tx(x):.3f} {ty(y):.3f} l "
+            commands.append(f"{path_command}h S\n")
+        elif entity["type"] == "text":
+            red, green, blue = hex_to_rgb(str(LAYERS[layer]["svg"]))
+            text = str(entity["value"])
+            font_size = max(3.5, float(entity["height"]) * scale)
+            angle = math.radians(float(entity["rotation"]))
+            cos_a = math.cos(angle)
+            sin_a = math.sin(angle)
+            x = tx(float(entity["x"]))
+            y = ty(float(entity["y"]))
+            if entity["center"]:
+                text_width = len(text) * font_size * 0.55
+                x -= math.cos(angle) * text_width / 2
+                y -= math.sin(angle) * text_width / 2
+            commands.append(
+                "BT "
+                f"{red:.3f} {green:.3f} {blue:.3f} rg "
+                f"/F1 {font_size:.3f} Tf "
+                f"{cos_a:.6f} {sin_a:.6f} {-sin_a:.6f} {cos_a:.6f} {x:.3f} {y:.3f} Tm "
+                f"({pdf_escape(text)}) Tj ET\n"
+            )
+
+    content = "".join(commands).encode("latin-1")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width:.0f} {page_height:.0f}] "
+            f"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+        ).encode("ascii"),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"endstream",
+    ]
+
+    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{index} 0 obj\n".encode("ascii"))
+        output.extend(obj)
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    output.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    output.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+    path.write_bytes(output)
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     drawing = build_plan()
     write_dxf(drawing, DXF_PATH)
     write_svg(drawing, SVG_PATH)
+    write_pdf(drawing, PDF_PATH)
     print(f"Wrote {DXF_PATH.relative_to(ROOT)}")
     print(f"Wrote {SVG_PATH.relative_to(ROOT)}")
+    print(f"Wrote {PDF_PATH.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
