@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="5600" height="6200" viewBox="0 0 5600 6200">
+<rect width="100%" height="100%" fill="white" />
+<line x1="350.00" y1="5900.00" x2="5150.00" y2="5900.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="5150.00" y1="5900.00" x2="5150.00" y2="1300.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="5150.00" y1="1300.00" x2="350.00" y2="1300.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="350.00" y1="1300.00" x2="350.00" y2="5900.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="430.00" y1="1500.00" x2="550.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="1620.00" x2="670.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="1740.00" x2="790.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="1860.00" x2="910.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="1980.00" x2="1030.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2100.00" x2="1150.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2220.00" x2="1270.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2340.00" x2="1390.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2460.00" x2="1510.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2580.00" x2="1630.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2700.00" x2="1750.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2820.00" x2="1870.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="2940.00" x2="1990.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3060.00" x2="2110.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3180.00" x2="2230.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3300.00" x2="2350.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3420.00" x2="2470.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3540.00" x2="2590.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3660.00" x2="2710.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3780.00" x2="2830.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="3900.00" x2="2950.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4020.00" x2="3070.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4140.00" x2="3190.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4260.00" x2="3310.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4380.00" x2="3430.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4500.00" x2="3550.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4620.00" x2="3670.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4740.00" x2="3790.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4860.00" x2="3910.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="4980.00" x2="4030.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5100.00" x2="4150.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5220.00" x2="4270.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5340.00" x2="4390.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5460.00" x2="4510.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5580.00" x2="4630.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5700.00" x2="4750.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="430.00" y1="5820.00" x2="4870.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="550.00" y1="5820.00" x2="4990.00" y2="1380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="670.00" y1="5820.00" x2="5070.00" y2="1420.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="790.00" y1="5820.00" x2="5070.00" y2="1540.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="910.00" y1="5820.00" x2="5070.00" y2="1660.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1030.00" y1="5820.00" x2="5070.00" y2="1780.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1150.00" y1="5820.00" x2="5070.00" y2="1900.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1270.00" y1="5820.00" x2="5070.00" y2="2020.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1390.00" y1="5820.00" x2="5070.00" y2="2140.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1510.00" y1="5820.00" x2="5070.00" y2="2260.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1630.00" y1="5820.00" x2="5070.00" y2="2380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1750.00" y1="5820.00" x2="5070.00" y2="2500.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1870.00" y1="5820.00" x2="5070.00" y2="2620.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="1990.00" y1="5820.00" x2="5070.00" y2="2740.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2110.00" y1="5820.00" x2="5070.00" y2="2860.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2230.00" y1="5820.00" x2="5070.00" y2="2980.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2350.00" y1="5820.00" x2="5070.00" y2="3100.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2470.00" y1="5820.00" x2="5070.00" y2="3220.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2590.00" y1="5820.00" x2="5070.00" y2="3340.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2710.00" y1="5820.00" x2="5070.00" y2="3460.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2830.00" y1="5820.00" x2="5070.00" y2="3580.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="2950.00" y1="5820.00" x2="5070.00" y2="3700.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3070.00" y1="5820.00" x2="5070.00" y2="3820.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3190.00" y1="5820.00" x2="5070.00" y2="3940.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3310.00" y1="5820.00" x2="5070.00" y2="4060.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3430.00" y1="5820.00" x2="5070.00" y2="4180.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3550.00" y1="5820.00" x2="5070.00" y2="4300.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3670.00" y1="5820.00" x2="5070.00" y2="4420.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3790.00" y1="5820.00" x2="5070.00" y2="4540.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="3910.00" y1="5820.00" x2="5070.00" y2="4660.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4030.00" y1="5820.00" x2="5070.00" y2="4780.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4150.00" y1="5820.00" x2="5070.00" y2="4900.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4270.00" y1="5820.00" x2="5070.00" y2="5020.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4390.00" y1="5820.00" x2="5070.00" y2="5140.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4510.00" y1="5820.00" x2="5070.00" y2="5260.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4630.00" y1="5820.00" x2="5070.00" y2="5380.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4750.00" y1="5820.00" x2="5070.00" y2="5500.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4870.00" y1="5820.00" x2="5070.00" y2="5620.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="4990.00" y1="5820.00" x2="5070.00" y2="5740.00" stroke="#b8b8b8" stroke-width="0.8" fill="none" />
+<line x1="610.00" y1="5010.00" x2="2080.00" y2="5010.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="2080.00" y1="5010.00" x2="2080.00" y2="2750.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="2080.00" y1="2750.00" x2="610.00" y2="2750.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="610.00" y1="2750.00" x2="610.00" y2="5010.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<text x="1345.00" y="3860.00" font-family="Arial, Helvetica, sans-serif" font-size="90.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 1345.00 3860.00)">OPEN COURT</text>
+<line x1="2600.00" y1="2500.00" x2="3680.00" y2="2500.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="3680.00" y1="2500.00" x2="3680.00" y2="1520.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="3680.00" y1="1520.00" x2="2600.00" y2="1520.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2600.00" y1="1520.00" x2="2600.00" y2="2500.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="3140.00" y="1965.00" font-family="Arial, Helvetica, sans-serif" font-size="115.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3140.00 1965.00)">PARKING</text>
+<text x="3010.00" y="1965.00" font-family="Arial, Helvetica, sans-serif" font-size="115.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3010.00 1965.00)">STRUCTURE</text>
+<line x1="500.00" y1="1850.00" x2="1000.00" y2="1850.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1000.00" y1="1850.00" x2="1000.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1000.00" y1="1350.00" x2="500.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="500.00" y1="1350.00" x2="500.00" y2="1850.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="750.00" y="1510.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 750.00 1510.00)">OUTSIDE</text>
+<text x="750.00" y="1600.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 750.00 1600.00)">TOILET</text>
+<line x1="1000.00" y1="2250.00" x2="1300.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1300.00" y1="2250.00" x2="1300.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1300.00" y1="1350.00" x2="1000.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1000.00" y1="1350.00" x2="1000.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="1150.00" y="1800.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1150.00 1800.00)">WASHROOM</text>
+<line x1="1300.00" y1="2250.00" x2="1650.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1650.00" y1="2250.00" x2="1650.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1650.00" y1="1350.00" x2="1300.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1300.00" y1="1350.00" x2="1300.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="1475.00" y="1800.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1475.00 1800.00)">BEDROOM</text>
+<line x1="1650.00" y1="2250.00" x2="2000.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2000.00" y1="2250.00" x2="2000.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2000.00" y1="1350.00" x2="1650.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1650.00" y1="1350.00" x2="1650.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="1825.00" y="1710.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1825.00 1710.00)">SITTING</text>
+<text x="1825.00" y="1800.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1825.00 1800.00)">ROOM</text>
+<line x1="2000.00" y1="2250.00" x2="2450.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2450.00" y1="2250.00" x2="2450.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2450.00" y1="1350.00" x2="2000.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2000.00" y1="1350.00" x2="2000.00" y2="2250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="2225.00" y="1800.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 2225.00 1800.00)">KITCHEN</text>
+<line x1="1170.00" y1="2250.00" x2="960.00" y2="2250.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 960.00 2250.00 A 210.00 210.00 0 0 0 1170.00 2460.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="1460.00" y1="2250.00" x2="1250.00" y2="2250.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 1250.00 2250.00 A 210.00 210.00 0 0 0 1460.00 2460.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="1810.00" y1="2250.00" x2="1600.00" y2="2250.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 1600.00 2250.00 A 210.00 210.00 0 0 0 1810.00 2460.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="2200.00" y1="2250.00" x2="1990.00" y2="2250.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 1990.00 2250.00 A 210.00 210.00 0 0 0 2200.00 2460.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="484.00" y1="1700.00" x2="484.00" y2="1460.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="516.00" y1="1700.00" x2="516.00" y2="1460.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="484.00" y1="1700.00" x2="516.00" y2="1700.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="484.00" y1="1460.00" x2="516.00" y2="1460.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2030.00" y1="3886.00" x2="4900.00" y2="3886.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2030.00" y1="3854.00" x2="4900.00" y2="3854.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2030.00" y1="3886.00" x2="2030.00" y2="3854.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4900.00" y1="3886.00" x2="4900.00" y2="3854.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4650.00" y1="1650.00" x2="5100.00" y2="1650.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="5100.00" y1="1650.00" x2="5100.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="5100.00" y1="1350.00" x2="4650.00" y2="1350.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4650.00" y1="1350.00" x2="4650.00" y2="1650.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<text x="4875.00" y="1465.00" font-family="Arial, Helvetica, sans-serif" font-size="65.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4875.00 1465.00)">SECURITY</text>
+<text x="4875.00" y="1550.00" font-family="Arial, Helvetica, sans-serif" font-size="65.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4875.00 1550.00)">HOUSE</text>
+<line x1="4750.00" y1="2450.00" x2="4750.00" y2="1650.00" stroke="#111111" stroke-width="2.2" fill="none" />
+<line x1="4750.00" y1="2430.00" x2="5070.00" y2="2340.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="2315.00" x2="5070.00" y2="2225.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="2200.00" x2="5070.00" y2="2110.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="2085.00" x2="5070.00" y2="1995.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="1970.00" x2="5070.00" y2="1880.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="1855.00" x2="5070.00" y2="1765.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4750.00" y1="1740.00" x2="5070.00" y2="1650.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<text x="4935.00" y="2050.00" font-family="Arial, Helvetica, sans-serif" font-size="115.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 4935.00 2050.00)">GATE</text>
+<line x1="1650.00" y1="5200.00" x2="4400.00" y2="5200.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4400.00" y1="5200.00" x2="4400.00" y2="3700.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4400.00" y1="3700.00" x2="1650.00" y2="3700.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="1650.00" y1="3700.00" x2="1650.00" y2="5200.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2400.00" y1="4200.00" x2="3650.00" y2="4200.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="3650.00" y1="4200.00" x2="3650.00" y2="3050.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="3650.00" y1="3050.00" x2="2400.00" y2="3050.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2400.00" y1="3050.00" x2="2400.00" y2="4200.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2700.00" y1="3250.00" x2="4400.00" y2="3250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4400.00" y1="3250.00" x2="4400.00" y2="2300.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4400.00" y1="2300.00" x2="2700.00" y2="2300.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2700.00" y1="2300.00" x2="2700.00" y2="3250.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4170.00" y1="4000.00" x2="4970.00" y2="4000.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4970.00" y1="4000.00" x2="4970.00" y2="3400.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4970.00" y1="3400.00" x2="4170.00" y2="3400.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="4170.00" y1="3400.00" x2="4170.00" y2="4000.00" stroke="#111111" stroke-width="3.0" fill="none" />
+<line x1="2200.00" y1="5200.00" x2="2200.00" y2="4200.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="2950.00" y1="5200.00" x2="2950.00" y2="4200.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="1650.00" y1="4550.00" x2="2200.00" y2="4550.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3800.00" y1="5200.00" x2="3800.00" y2="4700.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="2950.00" y1="4700.00" x2="4400.00" y2="4700.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3375.00" y1="5200.00" x2="3375.00" y2="4700.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3650.00" y1="4700.00" x2="3650.00" y2="3050.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3650.00" y1="3700.00" x2="4400.00" y2="3700.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3450.00" y1="3250.00" x2="3450.00" y2="2300.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="2700.00" y1="3050.00" x2="4400.00" y2="3050.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="3750.00" y1="3050.00" x2="3750.00" y2="2680.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<line x1="4170.00" y1="4000.00" x2="4170.00" y2="3400.00" stroke="#111111" stroke-width="1.7" fill="none" />
+<text x="1925.00" y="4905.00" font-family="Arial, Helvetica, sans-serif" font-size="85.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1925.00 4905.00)">LAUNDRY</text>
+<text x="1925.00" y="4346.20" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1925.00 4346.20)">KITCHEN</text>
+<text x="1925.00" y="4410.00" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 1925.00 4410.00)">STORE</text>
+<text x="2575.00" y="4720.00" font-family="Arial, Helvetica, sans-serif" font-size="90.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2575.00 4720.00)">KITCHEN</text>
+<text x="3000.00" y="3535.50" font-family="Arial, Helvetica, sans-serif" font-size="95.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3000.00 3535.50)">MAIN</text>
+<text x="3000.00" y="3640.00" font-family="Arial, Helvetica, sans-serif" font-size="95.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3000.00 3640.00)">HALL</text>
+<text x="4025.00" y="4210.00" font-family="Arial, Helvetica, sans-serif" font-size="100.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4025.00 4210.00)">RM 2</text>
+<text x="4100.00" y="4935.00" font-family="Arial, Helvetica, sans-serif" font-size="90.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4100.00 4935.00)">RM 1</text>
+<text x="3160.00" y="4935.00" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3160.00 4935.00)">WASHROOM</text>
+<text x="3585.00" y="4935.00" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3585.00 4935.00)">WASHROOM</text>
+<text x="3075.00" y="2695.00" font-family="Arial, Helvetica, sans-serif" font-size="95.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 3075.00 2695.00)">RM 4</text>
+<text x="4070.00" y="2675.00" font-family="Arial, Helvetica, sans-serif" font-size="95.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4070.00 2675.00)">RM 3</text>
+<text x="2875.00" y="3155.00" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2875.00 3155.00)">WASHROOM</text>
+<text x="3600.00" y="2865.00" font-family="Arial, Helvetica, sans-serif" font-size="58.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 3600.00 2865.00)">WASHROOM</text>
+<text x="4025.00" y="3500.00" font-family="Arial, Helvetica, sans-serif" font-size="75.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 4025.00 3500.00)">PASSAGE</text>
+<text x="4410.00" y="3715.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 4410.00 3715.00)">PASSAGE</text>
+<text x="4620.00" y="3578.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 4620.00 3578.00)">MAIN</text>
+<text x="4620.00" y="3655.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 4620.00 3655.00)">ENTRANCE</text>
+<line x1="2150.00" y1="4550.00" x2="2150.00" y2="4290.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2410.00 4550.00 A 260.00 260.00 0 0 0 2150.00 4290.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="2200.00" y1="4940.00" x2="2200.00" y2="4690.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2200.00 4690.00 A 250.00 250.00 0 0 0 1950.00 4940.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="2950.00" y1="4380.00" x2="2950.00" y2="4120.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2950.00 4120.00 A 260.00 260.00 0 0 0 2690.00 4380.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="3650.00" y1="4020.00" x2="3650.00" y2="4320.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 3350.00 4020.00 A 300.00 300.00 0 0 0 3650.00 4320.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="3810.00" y1="4700.00" x2="3540.00" y2="4700.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 3540.00 4700.00 A 270.00 270.00 0 0 0 3810.00 4970.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4250.00" y1="4700.00" x2="3990.00" y2="4700.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 3990.00 4700.00 A 260.00 260.00 0 0 0 4250.00 4960.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="3650.00" y1="3380.00" x2="3650.00" y2="3100.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 3650.00 3100.00 A 280.00 280.00 0 0 0 3370.00 3380.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="3450.00" y1="3010.00" x2="3450.00" y2="2760.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 3450.00 2760.00 A 250.00 250.00 0 0 0 3200.00 3010.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="2700.00" y1="2900.00" x2="2700.00" y2="2640.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2960.00 2900.00 A 260.00 260.00 0 0 0 2700.00 2640.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4170.00" y1="3700.00" x2="4170.00" y2="3430.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 4170.00 3430.00 A 270.00 270.00 0 0 0 3900.00 3700.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="4850.00" y1="3700.00" x2="4850.00" y2="3380.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 4850.00 3380.00 A 320.00 320.00 0 0 0 4530.00 3700.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="1850.00" y1="5200.00" x2="1850.00" y2="4920.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2130.00 5200.00 A 280.00 280.00 0 0 0 1850.00 4920.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="2410.00" y1="5200.00" x2="2410.00" y2="4930.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<path d="M 2680.00 5200.00 A 270.00 270.00 0 0 0 2410.00 4930.00" stroke="#111111" stroke-width="1.5" fill="none" />
+<line x1="3900.00" y1="5216.00" x2="4250.00" y2="5216.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3900.00" y1="5184.00" x2="4250.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3900.00" y1="5216.00" x2="3900.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4250.00" y1="5216.00" x2="4250.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3050.00" y1="5216.00" x2="3370.00" y2="5216.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3050.00" y1="5184.00" x2="3370.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3050.00" y1="5216.00" x2="3050.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3370.00" y1="5216.00" x2="3370.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2490.00" y1="5216.00" x2="2820.00" y2="5216.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2490.00" y1="5184.00" x2="2820.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2490.00" y1="5216.00" x2="2490.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2820.00" y1="5216.00" x2="2820.00" y2="5184.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2850.00" y1="2316.00" x2="3180.00" y2="2316.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2850.00" y1="2284.00" x2="3180.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2850.00" y1="2316.00" x2="2850.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3180.00" y1="2316.00" x2="3180.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3770.00" y1="2316.00" x2="4180.00" y2="2316.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3770.00" y1="2284.00" x2="4180.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3770.00" y1="2316.00" x2="3770.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4180.00" y1="2316.00" x2="4180.00" y2="2284.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="2850.00" x2="4384.00" y2="2520.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4416.00" y1="2850.00" x2="4416.00" y2="2520.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="2850.00" x2="4416.00" y2="2850.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="2520.00" x2="4416.00" y2="2520.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="4450.00" x2="4384.00" y2="4120.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4416.00" y1="4450.00" x2="4416.00" y2="4120.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="4450.00" x2="4416.00" y2="4450.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4384.00" y1="4120.00" x2="4416.00" y2="4120.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="5040.00" x2="1634.00" y2="4750.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1666.00" y1="5040.00" x2="1666.00" y2="4750.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="5040.00" x2="1666.00" y2="5040.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="4750.00" x2="1666.00" y2="4750.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="4160.00" x2="1634.00" y2="3860.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1666.00" y1="4160.00" x2="1666.00" y2="3860.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="4160.00" x2="1666.00" y2="4160.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1634.00" y1="3860.00" x2="1666.00" y2="3860.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1900.00" y1="3716.00" x2="2550.00" y2="3716.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1900.00" y1="3684.00" x2="2550.00" y2="3684.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="1900.00" y1="3716.00" x2="1900.00" y2="3684.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="2550.00" y1="3716.00" x2="2550.00" y2="3684.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4954.00" y1="3860.00" x2="4954.00" y2="3540.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4986.00" y1="3860.00" x2="4986.00" y2="3540.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4954.00" y1="3860.00" x2="4986.00" y2="3860.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="4954.00" y1="3540.00" x2="4986.00" y2="3540.00" stroke="#1f4e79" stroke-width="1.4" fill="none" />
+<line x1="3125.00" y1="5100.00" x2="3235.00" y2="5100.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3235.00" y1="5100.00" x2="3235.00" y2="5010.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3235.00" y1="5010.00" x2="3125.00" y2="5010.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3125.00" y1="5010.00" x2="3125.00" y2="5100.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3180.00" cy="5120.00" r="42.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3105.00" y1="4835.00" x2="3275.00" y2="4835.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3275.00" y1="4835.00" x2="3275.00" y2="4745.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3275.00" y1="4745.00" x2="3105.00" y2="4745.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3105.00" y1="4745.00" x2="3105.00" y2="4835.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3190.00" cy="4790.00" r="20.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3555.00" y1="5100.00" x2="3665.00" y2="5100.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3665.00" y1="5100.00" x2="3665.00" y2="5010.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3665.00" y1="5010.00" x2="3555.00" y2="5010.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3555.00" y1="5010.00" x2="3555.00" y2="5100.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3610.00" cy="5120.00" r="42.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3535.00" y1="4835.00" x2="3705.00" y2="4835.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3705.00" y1="4835.00" x2="3705.00" y2="4745.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3705.00" y1="4745.00" x2="3535.00" y2="4745.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3535.00" y1="4745.00" x2="3535.00" y2="4835.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3620.00" cy="4790.00" r="20.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3555.00" y1="2990.00" x2="3665.00" y2="2990.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3665.00" y1="2990.00" x2="3665.00" y2="2900.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3665.00" y1="2900.00" x2="3555.00" y2="2900.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3555.00" y1="2900.00" x2="3555.00" y2="2990.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3610.00" cy="3010.00" r="42.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3615.00" y1="2825.00" x2="3785.00" y2="2825.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3785.00" y1="2825.00" x2="3785.00" y2="2735.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3785.00" y1="2735.00" x2="3615.00" y2="2735.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="3615.00" y1="2735.00" x2="3615.00" y2="2825.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="3700.00" cy="2780.00" r="20.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2525.00" y1="5135.00" x2="2695.00" y2="5135.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2695.00" y1="5135.00" x2="2695.00" y2="5045.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2695.00" y1="5045.00" x2="2525.00" y2="5045.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2525.00" y1="5045.00" x2="2525.00" y2="5135.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="2610.00" cy="5090.00" r="20.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2005.00" y1="5185.00" x2="2175.00" y2="5185.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2175.00" y1="5185.00" x2="2175.00" y2="5095.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2175.00" y1="5095.00" x2="2005.00" y2="5095.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="2005.00" y1="5095.00" x2="2005.00" y2="5185.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<circle cx="2090.00" cy="5140.00" r="20.00" stroke="#111111" stroke-width="1.2" fill="none" />
+<line x1="350.00" y1="6130.00" x2="5150.00" y2="6130.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="350.00" y1="6175.00" x2="350.00" y2="6085.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5150.00" y1="6175.00" x2="5150.00" y2="6085.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="315.00" y1="6165.00" x2="385.00" y2="6095.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5115.00" y1="6165.00" x2="5185.00" y2="6095.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="2750.00" y="6075.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2750.00 6075.00)">4800</text>
+<line x1="120.00" y1="5900.00" x2="120.00" y2="1300.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="75.00" y1="5900.00" x2="165.00" y2="5900.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="75.00" y1="1300.00" x2="165.00" y2="1300.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="85.00" y1="5935.00" x2="155.00" y2="5865.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="85.00" y1="1335.00" x2="155.00" y2="1265.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="65.00" y="3600.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 65.00 3600.00)">4600</text>
+<line x1="1650.00" y1="5540.00" x2="2000.00" y2="5540.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1650.00" y1="5585.00" x2="1650.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2000.00" y1="5585.00" x2="2000.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1615.00" y1="5575.00" x2="1685.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1965.00" y1="5575.00" x2="2035.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="1825.00" y="5485.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 1825.00 5485.00)">350</text>
+<line x1="2000.00" y1="5540.00" x2="2224.00" y2="5540.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2000.00" y1="5585.00" x2="2000.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2224.00" y1="5585.00" x2="2224.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1965.00" y1="5575.00" x2="2035.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2189.00" y1="5575.00" x2="2259.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="2112.00" y="5485.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2112.00 5485.00)">224</text>
+<line x1="2224.00" y1="5540.00" x2="2624.00" y2="5540.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2224.00" y1="5585.00" x2="2224.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2624.00" y1="5585.00" x2="2624.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2189.00" y1="5575.00" x2="2259.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2589.00" y1="5575.00" x2="2659.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="2424.00" y="5485.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2424.00 5485.00)">400</text>
+<line x1="2624.00" y1="5540.00" x2="3007.00" y2="5540.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2624.00" y1="5585.00" x2="2624.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="3007.00" y1="5585.00" x2="3007.00" y2="5495.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2589.00" y1="5575.00" x2="2659.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2972.00" y1="5575.00" x2="3042.00" y2="5505.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="2815.50" y="5485.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2815.50 5485.00)">383</text>
+<line x1="610.00" y1="2670.00" x2="1042.00" y2="2670.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="610.00" y1="2715.00" x2="610.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1042.00" y1="2715.00" x2="1042.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="575.00" y1="2705.00" x2="645.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1007.00" y1="2705.00" x2="1077.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="826.00" y="2615.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 826.00 2615.00)">432</text>
+<line x1="1042.00" y1="2670.00" x2="1389.00" y2="2670.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1042.00" y1="2715.00" x2="1042.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1389.00" y1="2715.00" x2="1389.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1007.00" y1="2705.00" x2="1077.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1354.00" y1="2705.00" x2="1424.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="1215.50" y="2615.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 1215.50 2615.00)">347</text>
+<line x1="1389.00" y1="2670.00" x2="2009.00" y2="2670.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1389.00" y1="2715.00" x2="1389.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="2009.00" y1="2715.00" x2="2009.00" y2="2625.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1354.00" y1="2705.00" x2="1424.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="1974.00" y1="2705.00" x2="2044.00" y2="2635.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="1699.00" y="2615.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 1699.00 2615.00)">620</text>
+<line x1="5370.00" y1="5900.00" x2="5370.00" y2="5640.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="5900.00" x2="5415.00" y2="5900.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="5640.00" x2="5415.00" y2="5640.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="5935.00" x2="5405.00" y2="5865.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="5675.00" x2="5405.00" y2="5605.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="5315.00" y="5770.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 5315.00 5770.00)">260</text>
+<line x1="5370.00" y1="5640.00" x2="5370.00" y2="5276.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="5640.00" x2="5415.00" y2="5640.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="5276.00" x2="5415.00" y2="5276.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="5675.00" x2="5405.00" y2="5605.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="5311.00" x2="5405.00" y2="5241.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="5315.00" y="5458.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 5315.00 5458.00)">364</text>
+<line x1="5370.00" y1="5276.00" x2="5370.00" y2="4929.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="5276.00" x2="5415.00" y2="5276.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="4929.00" x2="5415.00" y2="4929.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="5311.00" x2="5405.00" y2="5241.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="4964.00" x2="5405.00" y2="4894.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="5315.00" y="5102.50" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 5315.00 5102.50)">347</text>
+<line x1="5370.00" y1="4929.00" x2="5370.00" y2="4509.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="4929.00" x2="5415.00" y2="4929.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5325.00" y1="4509.00" x2="5415.00" y2="4509.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="4964.00" x2="5405.00" y2="4894.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<line x1="5335.00" y1="4544.00" x2="5405.00" y2="4474.00" stroke="#111111" stroke-width="1.0" fill="none" />
+<text x="5315.00" y="4719.00" font-family="Arial, Helvetica, sans-serif" font-size="70.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-90.00 5315.00 4719.00)">420</text>
+<text x="2750.00" y="6420.00" font-family="Arial, Helvetica, sans-serif" font-size="90.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2750.00 6420.00)">ARCHITECTURAL FLOOR PLAN FROM PROVIDED SKETCH</text>
+<text x="2750.00" y="6560.00" font-family="Arial, Helvetica, sans-serif" font-size="60.00" text-anchor="middle" dominant-baseline="middle" fill="#111111" transform="rotate(-0.00 2750.00 6560.00)">AutoCAD DXF | Units: millimetres | Scale reference from sketch dimensions</text>
+</svg>
