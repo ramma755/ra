@@ -1,0 +1,7 @@
+order_id,order_date,recipient_name,shipping_address,items,order_total
+112-4398271-6681234,2026-03-10,Vanessa Reeves,"1483 Olive Branch Rd, Greenwood, IN","baby monitor replacement; formula powder; diapers size 3; wipes",186.74
+ord_af_004,2026-02-15,Vanessa Reeves,"1483 Olive Branch Rd, Greenwood, IN","chicken breast; ground beef; rice; eggs; paper towels; dish soap",129.62
+ord_af_003,2025-11-21,Jessica Martin,"812 Evanston Ave, Indianapolis, IN","milk; bananas; coffee beans; paper towels",58.91
+ord_af_002,2025-11-20,Vanessa Reeves,"1483 Olive Branch Rd, Greenwood, IN","formula powder; baby wipes; diapers size 2",92.37
+ord_af_001,2025-11-12,Jessica Martin,"812 Evanston Ave, Indianapolis, IN","spinach; yogurt; salmon; olive oil",73.55
+ord_af_005,2026-02-05,Kevin Reeves,"1483 Olive Branch Rd, Greenwood, IN","baby cereal; diapers size 3; wipes",64.20
