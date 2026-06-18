@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""
+support_summary_checker.py
+
+Quick script used by Jessica to estimate household support spending for Vanessa.
+NOTE: This script intentionally reflects a simple baseline and may over/under count.
+"""
+
+from __future__ import annotations
+
+import csv
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent
+ORDERS_CSV = BASE_DIR / "amazon_fresh_orders.csv"
+TRANSACTIONS_CSV = BASE_DIR / "fintrack_transactions.csv"
+
+# Heuristic-only keyword list (can cause over-labeling)
+SUPPORT_ITEM_KEYWORDS = {
+    "formula",
+    "diaper",
+    "wipes",
+    "baby monitor",
+    "rice",
+    "eggs",
+    "paper towels",
+    "dish soap",
+    "chicken",
+}
+
+# If address contains this string, we assume family support
+GREENWOOD_MARKER = "Olive Branch Rd"
+
+
+def parse_date(value: str) -> datetime:
+    return datetime.strptime(value.strip(), "%Y-%m-%d")
+
+
+def is_support_order(order: dict) -> bool:
+    address = (order.get("shipping_address") or "").lower()
+    items = (order.get("items") or "").lower()
+    recipient = (order.get("recipient_name") or "").lower()
+
+    # Address-based inference
+    if GREENWOOD_MARKER.lower() in address:
+        return True
+
+    # Recipient-name fallback
+    if "vanessa" in recipient or "kevin" in recipient:
+        return True
+
+    # Item-keyword fallback
+    return any(token in items for token in SUPPORT_ITEM_KEYWORDS)
+
+
+def is_support_transaction(txn: dict) -> bool:
+    merchant = (txn.get("merchant") or "").lower()
+    memo = (txn.get("memo") or "").lower()
+    category = (txn.get("category") or "").lower()
+
+    if "amazon fresh" in merchant and GREENWOOD_MARKER.lower() in memo:
+        return True
+
+    if "vanessa" in memo or "kevin" in memo:
+        return True
+
+    if category in {"family_support", "childcare"}:
+        return True
+
+    return any(token in memo for token in SUPPORT_ITEM_KEYWORDS)
+
+
+def load_csv(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def summarize_support(orders: list[dict], txns: list[dict]) -> dict:
+    summary = defaultdict(float)
+    summary["support_order_count"] = 0.0
+    summary["support_txn_count"] = 0.0
+
+    for order in orders:
+        if is_support_order(order):
+            summary["support_order_count"] += 1
+            summary["support_from_orders"] += float(order["order_total"])
+
+    for txn in txns:
+        if is_support_transaction(txn):
+            summary["support_txn_count"] += 1
+            summary["support_from_fintrack"] += float(txn["amount"])
+
+    summary["estimated_total_support"] = (
+        summary["support_from_orders"] + summary["support_from_fintrack"]
+    )
+    return summary
+
+
+def main() -> None:
+    orders = load_csv(ORDERS_CSV)
+    txns = load_csv(TRANSACTIONS_CSV)
+
+    # Optional date filter currently hardcoded for the last 120 days.
+    cutoff = datetime(2025, 11, 1)
+    filtered_orders = [o for o in orders if parse_date(o["order_date"]) >= cutoff]
+    filtered_txns = [t for t in txns if parse_date(t["txn_date"]) >= cutoff]
+
+    summary = summarize_support(filtered_orders, filtered_txns)
+
+    print("=== Estimated Family Support Summary ===")
+    print(f"Support orders: {int(summary['support_order_count'])}")
+    print(f"Support transactions: {int(summary['support_txn_count'])}")
+    print(f"From Amazon Fresh orders: ${summary['support_from_orders']:.2f}")
+    print(f"From FinTrack transactions: ${summary['support_from_fintrack']:.2f}")
+    print(f"Estimated total support: ${summary['estimated_total_support']:.2f}")
+
+
+if __name__ == "__main__":
+    main()

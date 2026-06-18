@@ -1,0 +1,5 @@
+person,relationship,address_label,address
+Jessica Martin,self,home_primary,"812 Evanston Ave, Indianapolis, IN"
+Dennis Martin,spouse,home_primary,"812 Evanston Ave, Indianapolis, IN"
+Vanessa Reeves,daughter,greenwood_household,"1483 Olive Branch Rd, Greenwood, IN"
+Kevin Reeves,son-in-law,greenwood_household,"1483 Olive Branch Rd, Greenwood, IN"

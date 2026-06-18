@@ -1,0 +1,8 @@
+txn_id,txn_date,merchant,amount,category,memo
+txn_005,2025-11-18,Kroger Broad Ripple,67.43,groceries,"Weekly household groceries for Jessica"
+txn_012,2025-11-22,ALDI Broad Ripple,31.27,groceries,"Basic pantry refill"
+txn_013,2025-11-23,Trader Joe's Keystone,52.16,groceries,"Produce + snacks"
+txn_019,2026-02-06,Amazon Fresh,64.20,family_support,"Greenwood order follow-up for Vanessa/Kevin"
+txn_021,2026-02-15,Amazon Fresh,129.62,family_support,"Delivery to 1483 Olive Branch Rd"
+txn_024,2026-03-10,Amazon Fresh,186.74,childcare,"Replacement baby monitor and baby supplies"
+txn_028,2026-03-11,Target Nora,44.83,household,"Cleaning items for Jessica home"
