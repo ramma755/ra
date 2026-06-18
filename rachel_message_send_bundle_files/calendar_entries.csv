@@ -1,0 +1,4 @@
+event_id,title,start_datetime,end_datetime,location,notes
+evt_0418_pickup,Jordan - Mia pickup,2026-04-18 14:00,2026-04-18 14:30,Atlanta,Confirm exact handoff timing and avoid late arrival.
+evt_0419_dropoff,Jordan - Mia dropoff,2026-04-19 22:00,2026-04-19 22:30,Atlanta,Dropoff occurs during birthday weekend.
+evt_0419_party,Mia's 5th Birthday Party,2026-04-19 15:00,2026-04-19 17:30,SkyZone Atlanta,Family event intersects weekend logistics.
