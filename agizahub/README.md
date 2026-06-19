@@ -164,6 +164,10 @@ Transport-only mode (no supplier involved):
   - `corridor <town/area>` to set preferred corridor (or leave blank for broad matching)
 - Driver finalizes delivery with `Deliver <OrderID> <OTP>`
 - Admin still controls release with `Release <OrderID>`
+- Global transporter timeout guard:
+  - `TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES` (default 20)
+  - if no delivery confirmation in the window, order auto-rematches to a new eligible transporter
+  - applies across order categories that have assigned marketplace transporters
 
 ---
 

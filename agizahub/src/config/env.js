@@ -30,6 +30,7 @@ const requiredKeys = [
   "TRANSPORT_PER_KM_FEE_KES",
   "TRANSPORT_REQUESTER_COMMISSION_PERCENT",
   "TRANSPORTER_SIDE_COMMISSION_PERCENT",
+  "TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES",
   "DEFAULT_DELIVERY_FEE_KES",
   "TREASURY_SWEEP_THRESHOLD_KES",
 ];
@@ -91,6 +92,9 @@ module.exports = {
     ),
     transporterSideCommissionPercent: Number(
       process.env.TRANSPORTER_SIDE_COMMISSION_PERCENT || "5"
+    ),
+    transporterAssignmentTimeoutMinutes: Number(
+      process.env.TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES || "20"
     ),
     defaultDeliveryFeeKes: Number(process.env.DEFAULT_DELIVERY_FEE_KES || "150"),
     treasurySweepThresholdKes: Number(

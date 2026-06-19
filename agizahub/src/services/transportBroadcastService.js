@@ -46,11 +46,11 @@ const isCorridorEligible = ({
 const corridorKeyForOrder = ({ pickupLocationLabel, dropoffLocationLabel }) =>
   `${normalizeCorridor(pickupLocationLabel)}->${normalizeCorridor(dropoffLocationLabel)}`;
 
-const enqueueTransportJobBroadcasts = async ({
-  orderId,
+const findEligibleDrivers = async ({
   requestedVehicleType,
   pickupLocationLabel,
   dropoffLocationLabel,
+  excludeDriverMaskedIds = [],
 }) => {
   const profiles = await query(
     `
@@ -61,7 +61,10 @@ const enqueueTransportJobBroadcasts = async ({
     `
   );
 
-  const eligibleDriverIds = profiles.rows
+  const exclusion = new Set(excludeDriverMaskedIds.filter(Boolean));
+
+  return profiles.rows
+    .filter((profile) => !exclusion.has(profile.masked_id))
     .filter((profile) =>
       isVehicleEligible(requestedVehicleType, inferredVehicleType(profile))
     )
@@ -72,7 +75,27 @@ const enqueueTransportJobBroadcasts = async ({
         dropoffLocationLabel,
       })
     )
-    .map((profile) => profile.masked_id);
+    .map((profile) => ({
+      maskedId: profile.masked_id,
+      vehicleType: inferredVehicleType(profile),
+      corridor: profile.service_corridor_label || null,
+    }));
+};
+
+const enqueueTransportJobBroadcasts = async ({
+  orderId,
+  requestedVehicleType,
+  pickupLocationLabel,
+  dropoffLocationLabel,
+  excludeDriverMaskedIds = [],
+}) => {
+  const eligibleDrivers = await findEligibleDrivers({
+    requestedVehicleType,
+    pickupLocationLabel,
+    dropoffLocationLabel,
+    excludeDriverMaskedIds,
+  });
+  const eligibleDriverIds = eligibleDrivers.map((item) => item.maskedId);
 
   if (eligibleDriverIds.length === 0) {
     return {
@@ -168,6 +191,7 @@ const claimBroadcastJob = async ({ orderId, driverMaskedId }) => {
       `
         UPDATE orders
         SET transporter_masked_id = $2,
+            transporter_assigned_at = NOW(),
             updated_at = NOW()
         WHERE id = $1
           AND order_type = 'TRANSPORT_ONLY'
@@ -230,6 +254,8 @@ const claimBroadcastJob = async ({ orderId, driverMaskedId }) => {
 };
 
 module.exports = {
+  findEligibleDrivers,
+  corridorKeyForOrder,
   enqueueTransportJobBroadcasts,
   listQueuedJobsForDriver,
   claimBroadcastJob,

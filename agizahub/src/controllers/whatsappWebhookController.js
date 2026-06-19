@@ -180,6 +180,18 @@ const resolveTransporter = async (client) =>
     `
   );
 
+const resolvePlatformTransporter = async (client) =>
+  client.query(
+    `
+      SELECT masked_id, company_name
+      FROM platform_users
+      WHERE user_type IN ('TRANSPORTER_BIKE', 'TRANSPORTER_TRUCK')
+        AND current_step = 'COMPLETED'
+      ORDER BY created_at ASC
+      LIMIT 1
+    `
+  );
+
 const listCatalogOffersMessage = async () => {
   const result = await query(
     `
@@ -736,16 +748,7 @@ const createOrderFromCatalogRequest = async ({
     }
     const catalogItem = itemResult.rows[0];
 
-    const transporterResult = await client.query(
-      `
-        SELECT *
-        FROM platform_users
-        WHERE user_type IN ('TRANSPORTER_BIKE', 'TRANSPORTER_TRUCK')
-          AND current_step = 'COMPLETED'
-        ORDER BY created_at ASC
-        LIMIT 1
-      `
-    );
+    const transporterResult = await resolvePlatformTransporter(client);
     const transporter = transporterResult.rows[0] || null;
 
     const itemSubtotal = Number(quantity) * Number(catalogItem.price_per_unit);
@@ -811,7 +814,11 @@ const createOrderFromCatalogRequest = async ({
           extra_distance_km,
           extra_distance_fee_kes,
           raw_transport_fee_kes,
-          transport_rate_payload
+          transport_rate_payload,
+          order_type,
+          requested_vehicle_type,
+          pickup_location_label,
+          transporter_assigned_at
         )
         VALUES (
           'WHATSAPP',
@@ -819,7 +826,8 @@ const createOrderFromCatalogRequest = async ({
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
+          $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'SUPPLY',$26,$27,
+          CASE WHEN $15 IS NULL THEN NULL ELSE NOW() END
         )
         RETURNING *
       `,
@@ -855,6 +863,8 @@ const createOrderFromCatalogRequest = async ({
         transport.extraDistanceFeeKes,
         transport.rawTransportFeeKes,
         JSON.stringify(transport),
+        "TUKTUK_PICKUP",
+        catalogItem.location_label,
       ]
     );
 
@@ -1020,7 +1030,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
       throw new Error("No active vendor inventory found for this product.");
     }
     const inventory = inventoryResult.rows[0];
-    const transporterResult = await resolveTransporter(client);
+    const transporterResult = await resolvePlatformTransporter(client);
     const transporter = transporterResult.rows[0] || null;
 
     const quantity = Number(parsed.quantity || 1);
@@ -1074,7 +1084,12 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
           extra_distance_km,
           extra_distance_fee_kes,
           raw_transport_fee_kes,
-          transport_rate_payload
+          transport_rate_payload,
+          order_type,
+          requested_vehicle_type,
+          pickup_location_label,
+          transporter_masked_id,
+          transporter_assigned_at
         )
         VALUES (
           'WHATSAPP',
@@ -1082,7 +1097,8 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $16,$17,$18,$19,$20,$21,$22,$23,$24
+          $16,$17,$18,$19,$20,$21,$22,$23,$24,'SUPPLY',$25,$26,$27,
+          CASE WHEN $27 IS NULL THEN NULL ELSE NOW() END
         )
         RETURNING *
       `,
@@ -1095,7 +1111,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
         quantity,
         parsed.deliveryLocation || "To be confirmed",
         inventory.vendor_id,
-        transporter ? transporter.id : null,
+        null,
         totalAmount,
         platformFee,
         vendorAmount,
@@ -1112,6 +1128,9 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
         transport.extraDistanceFeeKes,
         transport.rawTransportFeeKes,
         JSON.stringify(transport),
+        "TUKTUK_PICKUP",
+        inventory.location_label || "Supplier Hub",
+        transporter?.masked_id || null,
       ]
     );
     return { order: orderResult.rows[0], inventory, otp };

@@ -1,6 +1,9 @@
 const cron = require("node-cron");
 const { runDailyReconciliation } = require("../services/reconciliationService");
 const { runAutoSweep } = require("../services/treasuryService");
+const {
+  runTransporterTimeoutReassignment,
+} = require("../services/transporterTimeoutService");
 const logger = require("../services/logger");
 
 const startSchedulers = () => {
@@ -19,6 +22,17 @@ const startSchedulers = () => {
       logger.info("Auto sweep run finished", result);
     } catch (error) {
       logger.error("Auto sweep failed", { error: error.message });
+    }
+  });
+
+  cron.schedule("*/2 * * * *", async () => {
+    try {
+      const result = await runTransporterTimeoutReassignment();
+      logger.info("Transport timeout reassignment run finished", result);
+    } catch (error) {
+      logger.error("Transport timeout reassignment failed", {
+        error: error.message,
+      });
     }
   });
 };
