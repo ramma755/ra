@@ -11,6 +11,9 @@ Backend MVP for a WhatsApp-first broker workflow:
   - Matching commission: `2%` to `5%` (config-clamped)
   - Logistics premium: `10%` of transport fee
 - Subscription fee removed (commission-only model)
+- Transport-only marketplace monetization:
+  - requester-side commission (`TRANSPORT_REQUESTER_COMMISSION_PERCENT`, default 5%)
+  - transporter-side commission (`TRANSPORTER_SIDE_COMMISSION_PERCENT`, default 5%)
 - Hold escrow and release payouts through dynamic routing:
   - `PHONE -> B2C`
   - `PAYBILL -> B2B BusinessPayBill`
@@ -145,6 +148,17 @@ Transport charge engine for buyer checkout:
 - Distance provider:
   - Primary: Google Distance Matrix API (driving distance)
   - Fallback: internal Haversine calculation when Google API is not configured/unavailable
+
+Transport-only mode (no supplier involved):
+
+- Start with `transport` or `move`
+- Categories:
+  - `COMMERCIAL_FREIGHT` (bulk/business stock movement)
+  - `PERSONAL_RELOCATION` (household and personal goods)
+- Requester confirms with `1` after quote summary + STK prompt
+- Drivers can view open jobs via `jobs` and claim via `Claim <OrderID>`
+- Driver finalizes delivery with `Deliver <OrderID> <OTP>`
+- Admin still controls release with `Release <OrderID>`
 
 ---
 

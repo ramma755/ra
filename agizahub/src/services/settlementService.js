@@ -278,10 +278,7 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       }
     }
 
-    const platformAmount = Number(
-      Number(order.matching_commission_kes || 0) +
-        Number(order.logistics_premium_kes || 0)
-    );
+    const platformAmount = Number(order.platform_fee_kes || 0);
 
     await client.query(
       `

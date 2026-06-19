@@ -28,6 +28,8 @@ const requiredKeys = [
   "TRANSPORT_BASE_FEE_KES",
   "TRANSPORT_BASE_DISTANCE_KM",
   "TRANSPORT_PER_KM_FEE_KES",
+  "TRANSPORT_REQUESTER_COMMISSION_PERCENT",
+  "TRANSPORTER_SIDE_COMMISSION_PERCENT",
   "DEFAULT_DELIVERY_FEE_KES",
   "TREASURY_SWEEP_THRESHOLD_KES",
 ];
@@ -84,6 +86,12 @@ module.exports = {
     transportBaseFeeKes: Number(process.env.TRANSPORT_BASE_FEE_KES || "1500"),
     transportBaseDistanceKm: Number(process.env.TRANSPORT_BASE_DISTANCE_KM || "10"),
     transportPerKmFeeKes: Number(process.env.TRANSPORT_PER_KM_FEE_KES || "40"),
+    transportRequesterCommissionPercent: Number(
+      process.env.TRANSPORT_REQUESTER_COMMISSION_PERCENT || "5"
+    ),
+    transporterSideCommissionPercent: Number(
+      process.env.TRANSPORTER_SIDE_COMMISSION_PERCENT || "5"
+    ),
     defaultDeliveryFeeKes: Number(process.env.DEFAULT_DELIVERY_FEE_KES || "150"),
     treasurySweepThresholdKes: Number(
       process.env.TREASURY_SWEEP_THRESHOLD_KES || "50000"

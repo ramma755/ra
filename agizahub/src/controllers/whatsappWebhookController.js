@@ -49,6 +49,24 @@ const paymentModeMenu = () =>
     "3 - Business Paybill",
   ].join("\n");
 
+const transportCategoryMenu = () =>
+  [
+    "Need to move goods? Let's find you a secure transporter.",
+    "",
+    "Reply with:",
+    "1 - Commercial Freight (business stock/wholesale goods)",
+    "2 - Personal Relocation (house moves, electronics, personal items)",
+  ].join("\n");
+
+const transportVehicleMenu = () =>
+  [
+    "What size vehicle do you require?",
+    "",
+    "1 - Motorbike (small packages)",
+    "2 - Tuk-tuk / Pickup (small house move / 1 tonne max)",
+    "3 - Canter / Truck (bulk load / 3+ tonnes)",
+  ].join("\n");
+
 const parseCoordinates = (input) => {
   const parts = String(input || "").split(",");
   if (parts.length < 2) return null;
@@ -71,6 +89,19 @@ const parseCatalogLine = (rawMessage) => {
   const price = Number(chunks[1].replace(/[^\d.]/g, "").trim());
   if (!commodity || Number.isNaN(price) || price <= 0) return null;
   return { commodity, price };
+};
+
+const parseTransportCategory = (choice) => {
+  if (choice === "1") return "COMMERCIAL_FREIGHT";
+  if (choice === "2") return "PERSONAL_RELOCATION";
+  return null;
+};
+
+const parseVehicleType = (choice) => {
+  if (choice === "1") return "MOTORBIKE";
+  if (choice === "2") return "TUKTUK_PICKUP";
+  if (choice === "3") return "CANTER_TRUCK";
+  return null;
 };
 
 const resolveUserByMaskedId = async (client, maskedId) => {
@@ -250,6 +281,449 @@ const formatCheckoutSummary = ({
     "Reply 1 to confirm. M-Pesa prompt will appear instantly.",
   ].join("\n");
 
+const formatTransportOnlySummary = ({
+  category,
+  pickupLabel,
+  dropoffLabel,
+  vehicleType,
+  transport,
+  requesterCommissionPercent,
+  requesterCommissionKes,
+  requesterTotalKes,
+  transporterCommissionPercent,
+}) =>
+  [
+    "AGIZAHUB TRANSPORT SUMMARY",
+    "--------------------------",
+    `Category: ${category === "COMMERCIAL_FREIGHT" ? "Commercial Freight" : "Personal Relocation"}`,
+    `Pickup: ${pickupLabel}`,
+    `Drop-off: ${dropoffLabel}`,
+    `Vehicle: ${vehicleType}`,
+    `Route: ${pickupLabel} -> ${dropoffLabel}`,
+    `Distance: ${transport.distanceKm} KM (${transport.distanceProvider})`,
+    `Raw Transit Fare: KSh ${Number(transport.rawTransportFeeKes).toLocaleString()}`,
+    `Your Requester Fee (${requesterCommissionPercent}%): KSh ${Number(
+      requesterCommissionKes
+    ).toLocaleString()}`,
+    `Transporter commission at release: ${transporterCommissionPercent}% (auto-deducted from driver payout)`,
+    `TOTAL TO PAY NOW: KSh ${Number(requesterTotalKes).toLocaleString()}`,
+    "--------------------------",
+    "Reply 1 to confirm and trigger STK push.",
+  ].join("\n");
+
+const listOpenTransportJobsForDriver = async () => {
+  const jobs = await query(
+    `
+      SELECT
+        id,
+        transport_job_category,
+        pickup_location_label,
+        delivery_location,
+        requested_vehicle_type,
+        raw_transport_fee_kes,
+        created_at
+      FROM orders
+      WHERE order_type = 'TRANSPORT_ONLY'
+        AND transporter_masked_id IS NULL
+        AND payment_status IN ('PENDING_PAYMENT', 'PAID_HELD')
+      ORDER BY created_at DESC
+      LIMIT 8
+    `
+  );
+
+  if (jobs.rowCount === 0) {
+    return "No open transport jobs right now.";
+  }
+
+  const lines = ["Open transport jobs (claim with: Claim <OrderID>):"];
+  for (const job of jobs.rows) {
+    lines.push(
+      "",
+      `#${job.id}`,
+      `${job.transport_job_category} | ${job.requested_vehicle_type}`,
+      `${job.pickup_location_label} -> ${job.delivery_location}`,
+      `Raw fare: KSh ${Number(job.raw_transport_fee_kes || 0).toLocaleString()}`
+    );
+  }
+  return lines.join("\n");
+};
+
+const claimTransportJobForDriver = async ({ orderId, driverMaskedId }) =>
+  transaction(async (client) => {
+    const result = await client.query(
+      `
+        UPDATE orders
+        SET transporter_masked_id = $2,
+            updated_at = NOW()
+        WHERE id = $1
+          AND order_type = 'TRANSPORT_ONLY'
+          AND transporter_masked_id IS NULL
+        RETURNING id, pickup_location_label, delivery_location, requested_vehicle_type
+      `,
+      [orderId, driverMaskedId]
+    );
+    if (result.rowCount === 0) {
+      throw new Error("Transport job unavailable or already claimed");
+    }
+
+    await client.query(
+      `
+        INSERT INTO admin_action_events (
+          order_id,
+          actor_phone,
+          action_type,
+          action_payload
+        )
+        VALUES ($1, $2, 'TRANSPORT_JOB_CLAIMED', $3)
+      `,
+      [
+        orderId,
+        driverMaskedId,
+        JSON.stringify({
+          orderId,
+          driverMaskedId,
+        }),
+      ]
+    );
+
+    return result.rows[0];
+  });
+
+const createTransportOnlyOrder = async ({
+  requesterUser,
+  senderPhone,
+  rawMessage,
+  payload,
+}) =>
+  transaction(async (client) => {
+    const hasCoords =
+      payload.pickupLat != null &&
+      payload.pickupLng != null &&
+      payload.dropoffLat != null &&
+      payload.dropoffLng != null;
+
+    const distanceResult = hasCoords
+      ? await resolveRouteDistance({
+          fromLat: payload.pickupLat,
+          fromLng: payload.pickupLng,
+          toLat: payload.dropoffLat,
+          toLng: payload.dropoffLng,
+        })
+      : {
+          distanceKm: Number(env.businessRules.transportBaseDistanceKm),
+          distanceProvider: "default-distance-estimate",
+        };
+
+    const transport = {
+      ...computeTransportBreakdown({ distanceKm: distanceResult.distanceKm }),
+      distanceProvider: distanceResult.distanceProvider,
+    };
+
+    const requesterCommissionPercent = Number(
+      env.businessRules.transportRequesterCommissionPercent
+    );
+    const transporterCommissionPercent = Number(
+      env.businessRules.transporterSideCommissionPercent
+    );
+    const requesterCommissionKes = Number(
+      ((transport.rawTransportFeeKes * requesterCommissionPercent) / 100).toFixed(2)
+    );
+    const transporterCommissionKes = Number(
+      ((transport.rawTransportFeeKes * transporterCommissionPercent) / 100).toFixed(2)
+    );
+    const requesterTotalKes = Number(
+      (transport.rawTransportFeeKes + requesterCommissionKes).toFixed(2)
+    );
+    const transporterNetPayoutKes = Number(
+      (transport.rawTransportFeeKes - transporterCommissionKes).toFixed(2)
+    );
+    const platformFeeKes = Number(
+      (requesterCommissionKes + transporterCommissionKes).toFixed(2)
+    );
+    const otp = String(Math.floor(1000 + Math.random() * 9000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    const orderInsert = await client.query(
+      `
+        INSERT INTO orders (
+          source_channel,
+          buyer_phone,
+          buyer_name,
+          raw_message,
+          parsed_payload,
+          quantity,
+          delivery_location,
+          total_amount_kes,
+          platform_fee_kes,
+          vendor_amount_kes,
+          driver_amount_kes,
+          delivery_fee_kes,
+          otp_code_hash,
+          otp_expires_at,
+          payment_status,
+          settlement_status,
+          distribution_status,
+          buyer_masked_id,
+          transporter_masked_id,
+          commission_percent,
+          logistics_premium_percent,
+          matching_commission_kes,
+          logistics_premium_kes,
+          distance_km,
+          base_transport_fee_kes,
+          extra_distance_km,
+          extra_distance_fee_kes,
+          raw_transport_fee_kes,
+          transport_rate_payload,
+          order_type,
+          transport_job_category,
+          requested_vehicle_type,
+          pickup_location_label,
+          requester_commission_percent,
+          requester_commission_kes,
+          transporter_commission_percent,
+          transporter_commission_kes
+        )
+        VALUES (
+          'WHATSAPP',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW() + INTERVAL '12 hours',
+          'PENDING_PAYMENT',
+          'NOT_STARTED',
+          'NOT_STARTED',
+          $13,NULL,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'TRANSPORT_ONLY',$24,$25,$26,$27,$28,$29,$30
+        )
+        RETURNING *
+      `,
+      [
+        senderPhone,
+        requesterUser.company_name || "Transport requester",
+        rawMessage,
+        JSON.stringify({
+          source: "transport_only_request",
+          category: payload.category,
+          pickupLabel: payload.pickupLabel,
+          dropoffLabel: payload.dropoffLabel,
+          vehicleType: payload.vehicleType,
+          pickupLat: payload.pickupLat || null,
+          pickupLng: payload.pickupLng || null,
+          dropoffLat: payload.dropoffLat || null,
+          dropoffLng: payload.dropoffLng || null,
+        }),
+        1,
+        payload.dropoffLabel,
+        requesterTotalKes,
+        platformFeeKes,
+        0,
+        transporterNetPayoutKes,
+        transport.rawTransportFeeKes,
+        otpHash,
+        requesterUser.masked_id,
+        requesterCommissionPercent,
+        transporterCommissionPercent,
+        requesterCommissionKes,
+        transporterCommissionKes,
+        transport.distanceKm,
+        transport.baseFeeKes,
+        transport.extraDistanceKm,
+        transport.extraDistanceFeeKes,
+        transport.rawTransportFeeKes,
+        JSON.stringify({
+          ...transport,
+          requesterCommissionPercent,
+          requesterCommissionKes,
+          requesterTotalKes,
+          transporterCommissionPercent,
+          transporterCommissionKes,
+          transporterNetPayoutKes,
+          routeLabel: `${payload.pickupLabel} -> ${payload.dropoffLabel}`,
+        }),
+        payload.category,
+        payload.vehicleType,
+        payload.pickupLabel,
+        requesterCommissionPercent,
+        requesterCommissionKes,
+        transporterCommissionPercent,
+        transporterCommissionKes,
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_ORDER_CONFIRM',
+            pending_order_id = $2,
+            pending_transport_payload = $3,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        requesterUser.id,
+        orderInsert.rows[0].id,
+        JSON.stringify({
+          transportOnly: true,
+          category: payload.category,
+          pickupLabel: payload.pickupLabel,
+          dropoffLabel: payload.dropoffLabel,
+          vehicleType: payload.vehicleType,
+        }),
+      ]
+    );
+
+    await client.query(
+      `
+        INSERT INTO admin_action_events (
+          order_id,
+          actor_phone,
+          action_type,
+          action_payload
+        )
+        VALUES ($1, $2, 'TRANSPORT_JOB_OPENED', $3)
+      `,
+      [
+        orderInsert.rows[0].id,
+        requesterUser.masked_id,
+        JSON.stringify({
+          orderId: orderInsert.rows[0].id,
+          category: payload.category,
+          vehicleType: payload.vehicleType,
+          route: `${payload.pickupLabel} -> ${payload.dropoffLabel}`,
+        }),
+      ]
+    );
+
+    return {
+      order: orderInsert.rows[0],
+      transport,
+      requesterCommissionPercent,
+      requesterCommissionKes,
+      requesterTotalKes,
+      transporterCommissionPercent,
+      transporterCommissionKes,
+      transporterNetPayoutKes,
+      otp,
+    };
+  });
+
+const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
+  const trimmed = rawMessage.trim();
+
+  if (user.current_step === "TRANSPORT_CATEGORY") {
+    const category = parseTransportCategory(trimmed);
+    if (!category) {
+      return transportCategoryMenu();
+    }
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'TRANSPORT_PICKUP',
+            pending_transport_payload = $2,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id, JSON.stringify({ category })]
+    );
+    return "Where are the items being picked up? Share town name or coordinates (lat,lng).";
+  }
+
+  let payload = user.pending_transport_payload || {};
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch (_err) {
+      payload = {};
+    }
+  }
+
+  if (user.current_step === "TRANSPORT_PICKUP") {
+    const coords = parseCoordinates(trimmed);
+    payload = {
+      ...payload,
+      pickupLabel: trimmed,
+      pickupLat: coords ? coords.latitude : null,
+      pickupLng: coords ? coords.longitude : null,
+    };
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'TRANSPORT_DROPOFF',
+            pending_transport_payload = $2,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id, JSON.stringify(payload)]
+    );
+    return "Where are the items going? Share destination town or coordinates (lat,lng).";
+  }
+
+  if (user.current_step === "TRANSPORT_DROPOFF") {
+    const coords = parseCoordinates(trimmed);
+    payload = {
+      ...payload,
+      dropoffLabel: trimmed,
+      dropoffLat: coords ? coords.latitude : null,
+      dropoffLng: coords ? coords.longitude : null,
+    };
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'TRANSPORT_VEHICLE',
+            pending_transport_payload = $2,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id, JSON.stringify(payload)]
+    );
+    return transportVehicleMenu();
+  }
+
+  if (user.current_step === "TRANSPORT_VEHICLE") {
+    const vehicleType = parseVehicleType(trimmed);
+    if (!vehicleType) {
+      return transportVehicleMenu();
+    }
+
+    payload = {
+      ...payload,
+      vehicleType,
+    };
+
+    if (!payload.category || !payload.pickupLabel || !payload.dropoffLabel) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              pending_transport_payload = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return "Transport flow reset due to missing data. Type Transport to restart.";
+    }
+
+    const transportOrder = await createTransportOnlyOrder({
+      requesterUser: user,
+      senderPhone,
+      rawMessage,
+      payload,
+    });
+
+    return formatTransportOnlySummary({
+      category: payload.category,
+      pickupLabel: payload.pickupLabel,
+      dropoffLabel: payload.dropoffLabel,
+      vehicleType: payload.vehicleType,
+      transport: transportOrder.transport,
+      requesterCommissionPercent: transportOrder.requesterCommissionPercent,
+      requesterCommissionKes: transportOrder.requesterCommissionKes,
+      requesterTotalKes: transportOrder.requesterTotalKes,
+      transporterCommissionPercent: transportOrder.transporterCommissionPercent,
+    });
+  }
+
+  return "Transport flow unknown state. Type Transport to restart.";
+};
+
 const createOrderFromCatalogRequest = async ({
   buyer,
   senderPhone,
@@ -417,6 +891,7 @@ const createOrderFromCatalogRequest = async ({
         UPDATE platform_users
         SET current_step = 'AWAITING_ORDER_CONFIRM',
             pending_order_id = $2,
+            pending_transport_payload = NULL,
             updated_at = NOW()
         WHERE id = $1
       `,
@@ -471,6 +946,7 @@ const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
           UPDATE platform_users
           SET current_step = 'COMPLETED',
               pending_order_id = NULL,
+              pending_transport_payload = NULL,
               updated_at = NOW()
           WHERE id = $1
         `,
@@ -483,11 +959,18 @@ const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
       };
     }
 
+    const transactionDesc =
+      order.order_type === "TRANSPORT_ONLY"
+        ? `AgizaHub Transport ${order.pickup_location_label || ""} -> ${
+            order.delivery_location || ""
+          }`.trim()
+        : `AgizaHub Seller #${order.supplier_masked_id || "N/A"}`;
+
     const stkResponse = await initiateStkPush({
       phoneNumber: senderPhone,
       amount: order.total_amount_kes,
       accountReference: `ORD-${order.id.slice(0, 8)}`,
-      transactionDesc: `AgizaHub Seller #${order.supplier_masked_id || "N/A"}`,
+      transactionDesc,
     });
 
     await client.query(
@@ -527,6 +1010,7 @@ const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
         UPDATE platform_users
         SET current_step = 'COMPLETED',
             pending_order_id = NULL,
+            pending_transport_payload = NULL,
             updated_at = NOW()
         WHERE id = $1
       `,
@@ -965,6 +1449,20 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       );
     }
 
+    if (
+      user.current_step === "TRANSPORT_CATEGORY" ||
+      user.current_step === "TRANSPORT_PICKUP" ||
+      user.current_step === "TRANSPORT_DROPOFF" ||
+      user.current_step === "TRANSPORT_VEHICLE"
+    ) {
+      const response = await processTransportFlowStep({
+        user,
+        rawMessage,
+        senderPhone,
+      });
+      return res.type("text/xml").send(twimlResponse(response));
+    }
+
     if (!user.user_type || user.current_step !== "COMPLETED") {
       const onboardingResponse = await processOnboardingStep({
         user,
@@ -972,6 +1470,20 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         senderPhone,
       });
       return res.type("text/xml").send(twimlResponse(onboardingResponse));
+    }
+
+    if (lowerMessage === "transport" || lowerMessage === "move") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'TRANSPORT_CATEGORY',
+              pending_transport_payload = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return res.type("text/xml").send(twimlResponse(transportCategoryMenu()));
     }
 
     if (lowerMessage === "buy" || lowerMessage === "offers" || lowerMessage === "view") {
@@ -1036,6 +1548,38 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           .type("text/xml")
           .send(twimlResponse("Refund request logged. Funds locked pending admin decision."));
       }
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
+      (lowerMessage === "jobs" || lowerMessage === "open jobs")
+    ) {
+      return res
+        .type("text/xml")
+        .send(twimlResponse(await listOpenTransportJobsForDriver()));
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
+      /^claim\s+/i.test(rawMessage)
+    ) {
+      const claimMatch = rawMessage.match(/^claim\s+([a-zA-Z0-9-]+)/i);
+      if (!claimMatch) {
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Use format: Claim <OrderID>"));
+      }
+      const claim = await claimTransportJobForDriver({
+        orderId: normalizeOrderIdFromText(claimMatch[1]),
+        driverMaskedId: user.masked_id,
+      });
+      return res.type("text/xml").send(
+        twimlResponse(
+          `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + delivery OTP.`
+        )
+      );
     }
 
     if (
