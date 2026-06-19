@@ -10,7 +10,7 @@ Backend MVP for a WhatsApp-first broker workflow:
 - Apply monetization rules:
   - Matching commission: `2%` to `5%` (config-clamped)
   - Logistics premium: `10%` of transport fee
-  - Premium supplier tier fee: `KSh 1,500/month` (tracked for reporting)
+- Subscription fee removed (commission-only model)
 - Hold escrow and release payouts through dynamic routing:
   - `PHONE -> B2C`
   - `PAYBILL -> B2B BusinessPayBill`
@@ -134,6 +134,14 @@ On success:
 - admin must explicitly release funds (`Release <OrderID>`)
 - routing executes via B2C/B2B based on wallet/payment mode
 - callbacks reconcile each leg to `SUCCESS/FAILED/TIMEOUT`
+
+Transport charge engine for buyer checkout:
+
+- Buyer pays transport
+- Formula:
+  - Base fee `TRANSPORT_BASE_FEE_KES` for first `TRANSPORT_BASE_DISTANCE_KM`
+  - Extra fee `TRANSPORT_PER_KM_FEE_KES` for each additional KM
+  - Platform logistics premium `%` on top of raw transport fee
 
 ---
 

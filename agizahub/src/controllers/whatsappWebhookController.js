@@ -19,6 +19,10 @@ const {
   approveRefundByAdmin,
   rejectRefundByAdmin,
 } = require("../services/settlementService");
+const {
+  haversineDistanceKm,
+  computeTransportBreakdown,
+} = require("../services/logisticsPricingService");
 const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
@@ -44,6 +48,19 @@ const paymentModeMenu = () =>
     "2 - Buy Goods Till Number",
     "3 - Business Paybill",
   ].join("\n");
+
+const parseCoordinates = (input) => {
+  const parts = String(input || "").split(",");
+  if (parts.length < 2) return null;
+  const latitude = Number(parts[0].trim());
+  const longitude = Number(parts[1].trim());
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return {
+    latitude: Number(latitude.toFixed(6)),
+    longitude: Number(longitude.toFixed(6)),
+  };
+};
 
 const normalizeOrderIdFromText = (text) => (text || "").trim();
 
@@ -104,7 +121,7 @@ const resolveVendorInventory = async (client, productId, preferredVendor) =>
           $2::text IS NULL
           OR LOWER(v.name) LIKE CONCAT('%', LOWER($2), '%')
         )
-      ORDER BY v.is_premium DESC, vi.price_kes ASC
+      ORDER BY vi.price_kes ASC
       LIMIT 1
     `,
     [productId, preferredVendor || null]
@@ -135,7 +152,7 @@ const listCatalogOffersMessage = async () => {
       JOIN platform_users u ON u.masked_id = c.seller_masked_id
       WHERE c.is_active = TRUE
         AND u.user_type = 'SUPPLIER'
-      ORDER BY u.subscription_tier DESC, c.price_per_unit ASC
+      ORDER BY c.price_per_unit ASC, c.created_at ASC
       LIMIT 15
     `
   );
@@ -152,7 +169,7 @@ const listCatalogOffersMessage = async () => {
       `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id})`,
       `Price: KSh ${Number(item.price_per_unit).toLocaleString()} per ${item.unit_measure}`,
       `Location: ${item.location_label}`,
-      `Buy format: Buy ${item.masked_id} 10`
+      `To purchase: Buy ${item.masked_id} 10`
     );
   }
   return lines.join("\n");
@@ -203,6 +220,33 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
   return null;
 };
 
+const formatCheckoutSummary = ({
+  quantity,
+  commodityName,
+  unitMeasure,
+  unitPrice,
+  itemSubtotal,
+  supplierHubLabel,
+  buyerDestinationLabel,
+  transport,
+  totalAmount,
+}) =>
+  [
+    "AGIZAHUB ORDER SUMMARY",
+    "--------------------------",
+    `Items: ${quantity} ${unitMeasure} of ${commodityName} @ KSh ${Number(
+      unitPrice
+    ).toLocaleString()} = KSh ${Number(itemSubtotal).toLocaleString()}`,
+    `Supplier Hub: ${supplierHubLabel}`,
+    `Delivery Destination: ${buyerDestinationLabel}`,
+    `Transport Fee (${transport.distanceKm} KM): KSh ${Number(
+      transport.totalTransportFeeKes
+    ).toLocaleString()}`,
+    "--------------------------",
+    `TOTAL AMOUNT TO PAY: KSh ${Number(totalAmount).toLocaleString()}`,
+    "Reply 1 to confirm. M-Pesa prompt will appear instantly.",
+  ].join("\n");
+
 const createOrderFromCatalogRequest = async ({
   buyer,
   senderPhone,
@@ -214,6 +258,17 @@ const createOrderFromCatalogRequest = async ({
     const seller = await resolveUserByMaskedId(client, sellerMaskedId);
     if (!seller || seller.user_type !== "SUPPLIER") {
       throw new Error("Supplier ID not found");
+    }
+
+    if (
+      seller.hub_latitude == null ||
+      seller.hub_longitude == null ||
+      buyer.delivery_latitude == null ||
+      buyer.delivery_longitude == null
+    ) {
+      throw new Error(
+        "Missing coordinates. Supplier and buyer must complete location onboarding."
+      );
     }
 
     const itemResult = await client.query(
@@ -244,20 +299,29 @@ const createOrderFromCatalogRequest = async ({
     );
     const transporter = transporterResult.rows[0] || null;
 
-    const subtotal = Number(quantity) * Number(catalogItem.price_per_unit);
-    const deliveryFee = Number(env.businessRules.defaultDeliveryFeeKes);
+    const itemSubtotal = Number(quantity) * Number(catalogItem.price_per_unit);
     const matchingPercent = Number(env.businessRules.matchingCommissionPercent);
-    const logisticsPercent = Number(env.businessRules.logisticsPremiumPercent);
     const matchingCommission = Number(
-      ((subtotal * matchingPercent) / 100).toFixed(2)
+      ((itemSubtotal * matchingPercent) / 100).toFixed(2)
     );
-    const logisticsPremium = Number(
-      ((deliveryFee * logisticsPercent) / 100).toFixed(2)
+
+    const distanceKm =
+      haversineDistanceKm({
+        fromLat: seller.hub_latitude,
+        fromLng: seller.hub_longitude,
+        toLat: buyer.delivery_latitude,
+        toLng: buyer.delivery_longitude,
+      }) || Number(env.businessRules.transportBaseDistanceKm);
+
+    const transport = computeTransportBreakdown({ distanceKm });
+    const vendorAmount = Number((itemSubtotal - matchingCommission).toFixed(2));
+    const driverAmount = Number(transport.rawTransportFeeKes);
+    const platformFee = Number(
+      (matchingCommission + transport.logisticsPremiumKes).toFixed(2)
     );
-    const driverAmount = Number((deliveryFee - logisticsPremium).toFixed(2));
-    const vendorAmount = Number((subtotal - matchingCommission).toFixed(2));
-    const platformFee = Number((matchingCommission + logisticsPremium).toFixed(2));
-    const totalAmount = Number((subtotal + deliveryFee).toFixed(2));
+    const totalAmount = Number(
+      (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
+    );
     const otp = String(Math.floor(1000 + Math.random() * 9000));
     const otpHash = await bcrypt.hash(otp, 10);
 
@@ -288,8 +352,12 @@ const createOrderFromCatalogRequest = async ({
           logistics_premium_percent,
           matching_commission_kes,
           logistics_premium_kes,
-          premium_supplier_fee_kes,
-          is_premium_supplier
+          distance_km,
+          base_transport_fee_kes,
+          extra_distance_km,
+          extra_distance_fee_kes,
+          raw_transport_fee_kes,
+          transport_rate_payload
         )
         VALUES (
           'WHATSAPP',
@@ -297,7 +365,7 @@ const createOrderFromCatalogRequest = async ({
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $13,$14,$15,$16,$17,$18,$19,$20,$21
+          $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
         )
         RETURNING *
       `,
@@ -318,23 +386,149 @@ const createOrderFromCatalogRequest = async ({
         platformFee,
         vendorAmount,
         driverAmount,
-        deliveryFee,
+        transport.totalTransportFeeKes,
         otpHash,
         buyer.masked_id,
         seller.masked_id,
         transporter?.masked_id || null,
         matchingPercent,
-        logisticsPercent,
+        transport.logisticsPremiumPercent,
         matchingCommission,
-        logisticsPremium,
-        seller.subscription_tier === "PREMIUM"
-          ? env.businessRules.premiumSupplierMonthlyFeeKes
-          : 0,
-        seller.subscription_tier === "PREMIUM",
+        transport.logisticsPremiumKes,
+        transport.distanceKm,
+        transport.baseFeeKes,
+        transport.extraDistanceKm,
+        transport.extraDistanceFeeKes,
+        transport.rawTransportFeeKes,
+        JSON.stringify(transport),
       ]
     );
 
-    return { order: orderInsert.rows[0], seller, catalogItem, otp };
+    await client.query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_ORDER_CONFIRM',
+            pending_order_id = $2,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [buyer.id, orderInsert.rows[0].id]
+    );
+
+    return {
+      order: orderInsert.rows[0],
+      seller,
+      buyer,
+      catalogItem,
+      transport,
+      itemSubtotal,
+      otp,
+    };
+  });
+
+const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
+  transaction(async (client) => {
+    if (!user.pending_order_id) {
+      throw new Error("No pending order awaiting confirmation");
+    }
+
+    const orderResult = await client.query(
+      `
+        SELECT *
+        FROM orders
+        WHERE id = $1
+          AND buyer_masked_id = $2
+        FOR UPDATE
+      `,
+      [user.pending_order_id, user.masked_id]
+    );
+    if (orderResult.rowCount === 0) {
+      throw new Error("Pending order not found");
+    }
+    const order = orderResult.rows[0];
+
+    const existingTxn = await client.query(
+      `
+        SELECT 1
+        FROM mpesa_stk_transactions
+        WHERE order_id = $1
+        LIMIT 1
+      `,
+      [order.id]
+    );
+    if (existingTxn.rowCount > 0) {
+      await client.query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              pending_order_id = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        orderId: order.id,
+        totalAmountKes: Number(order.total_amount_kes),
+        alreadyInitiated: true,
+      };
+    }
+
+    const stkResponse = await initiateStkPush({
+      phoneNumber: senderPhone,
+      amount: order.total_amount_kes,
+      accountReference: `ORD-${order.id.slice(0, 8)}`,
+      transactionDesc: `AgizaHub Seller #${order.supplier_masked_id || "N/A"}`,
+    });
+
+    await client.query(
+      `
+        INSERT INTO mpesa_stk_transactions (
+          order_id,
+          checkout_request_id,
+          merchant_request_id,
+          amount_kes,
+          msisdn,
+          status,
+          raw_response
+        )
+        VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6)
+      `,
+      [
+        order.id,
+        stkResponse.CheckoutRequestID,
+        stkResponse.MerchantRequestID || null,
+        order.total_amount_kes,
+        senderPhone,
+        JSON.stringify(stkResponse),
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE orders
+        SET mpesa_checkout_request_id = $2, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [order.id, stkResponse.CheckoutRequestID]
+    );
+
+    await client.query(
+      `
+        UPDATE platform_users
+        SET current_step = 'COMPLETED',
+            pending_order_id = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+
+    return {
+      orderId: order.id,
+      totalAmountKes: Number(order.total_amount_kes),
+      alreadyInitiated: false,
+    };
   });
 
 const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => {
@@ -361,23 +555,25 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
       throw new Error("No active vendor inventory found for this product.");
     }
     const inventory = inventoryResult.rows[0];
-
     const transporterResult = await resolveTransporter(client);
     const transporter = transporterResult.rows[0] || null;
 
     const quantity = Number(parsed.quantity || 1);
-    const deliveryFee = Number(env.businessRules.defaultDeliveryFeeKes);
-    const subtotal = quantity * Number(inventory.price_kes);
+    const itemSubtotal = quantity * Number(inventory.price_kes);
     const matchingCommission = Number(
-      ((subtotal * env.businessRules.matchingCommissionPercent) / 100).toFixed(2)
+      ((itemSubtotal * env.businessRules.matchingCommissionPercent) / 100).toFixed(2)
     );
-    const logisticsPremium = Number(
-      ((deliveryFee * env.businessRules.logisticsPremiumPercent) / 100).toFixed(2)
+    const transport = computeTransportBreakdown({
+      distanceKm: env.businessRules.transportBaseDistanceKm,
+    });
+    const platformFee = Number(
+      (matchingCommission + transport.logisticsPremiumKes).toFixed(2)
     );
-    const platformFee = Number((matchingCommission + logisticsPremium).toFixed(2));
-    const vendorAmount = Number((subtotal - matchingCommission).toFixed(2));
-    const driverAmount = Number((deliveryFee - logisticsPremium).toFixed(2));
-    const totalAmount = Number((subtotal + deliveryFee).toFixed(2));
+    const vendorAmount = Number((itemSubtotal - matchingCommission).toFixed(2));
+    const driverAmount = Number(transport.rawTransportFeeKes);
+    const totalAmount = Number(
+      (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
+    );
     const otp = String(Math.floor(1000 + Math.random() * 9000));
     const otpHash = await bcrypt.hash(otp, 10);
 
@@ -407,7 +603,13 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
           commission_percent,
           logistics_premium_percent,
           matching_commission_kes,
-          logistics_premium_kes
+          logistics_premium_kes,
+          distance_km,
+          base_transport_fee_kes,
+          extra_distance_km,
+          extra_distance_fee_kes,
+          raw_transport_fee_kes,
+          transport_rate_payload
         )
         VALUES (
           'WHATSAPP',
@@ -415,7 +617,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $16,$17,$18,$19
+          $16,$17,$18,$19,$20,$21,$22,$23,$24
         )
         RETURNING *
       `,
@@ -433,18 +635,30 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
         platformFee,
         vendorAmount,
         driverAmount,
-        deliveryFee,
+        transport.totalTransportFeeKes,
         otpHash,
         env.businessRules.matchingCommissionPercent,
         env.businessRules.logisticsPremiumPercent,
         matchingCommission,
-        logisticsPremium,
+        transport.logisticsPremiumKes,
+        transport.distanceKm,
+        transport.baseFeeKes,
+        transport.extraDistanceKm,
+        transport.extraDistanceFeeKes,
+        transport.rawTransportFeeKes,
+        JSON.stringify(transport),
       ]
     );
     return { order: orderResult.rows[0], inventory, otp };
   });
 
   return { payload };
+};
+
+const nextStepAfterPaymentSelection = (userType) => {
+  if (userType === "BUYER") return "AWAITING_BUYER_LOCATION";
+  if (userType === "SUPPLIER") return "AWAITING_SUPPLIER_HUB";
+  return "COMPLETED";
 };
 
 const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
@@ -501,8 +715,7 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
       if (!paymentMode) return `Invalid option.\n\n${paymentModeMenu()}`;
 
       if (paymentMode === "SEND_MONEY") {
-        const nextStep =
-          user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+        const nextStep = nextStepAfterPaymentSelection(user.user_type);
         await client.query(
           `
             UPDATE platform_users
@@ -514,14 +727,11 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           `,
           [user.id, senderPhone, nextStep]
         );
-        if (nextStep === "AWAITING_CATALOG") {
-          return (
-            `Thank you. Your Seller ID is ${formatPublicMaskedId(
-              user.user_type,
-              user.masked_id
-            )}.\n` +
-            "Now add your first catalog item:\nCommodity, Price per bag\nExample: Potatoes, 2400"
-          );
+        if (nextStep === "AWAITING_BUYER_LOCATION") {
+          return "Send your delivery location coordinates as: latitude,longitude (example: -1.286389,36.817223)";
+        }
+        if (nextStep === "AWAITING_SUPPLIER_HUB") {
+          return "Send your supplier hub coordinates as: latitude,longitude (example: -0.727322,36.429387)";
         }
         return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
           user.user_type,
@@ -561,7 +771,7 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
       if (!/^\d{5,7}$/.test(till)) {
         return "Invalid Till Number. Send only 5-7 digits.";
       }
-      const nextStep = user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+      const nextStep = nextStepAfterPaymentSelection(user.user_type);
       await client.query(
         `
           UPDATE platform_users
@@ -572,13 +782,11 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         `,
         [user.id, till, nextStep]
       );
-      if (nextStep === "AWAITING_CATALOG") {
-        return (
-          `Payment profile saved. Seller ID ${formatPublicMaskedId(
-            user.user_type,
-            user.masked_id
-          )}.\n` + "Add first item: Commodity, Price per bag"
-        );
+      if (nextStep === "AWAITING_BUYER_LOCATION") {
+        return "Now send buyer delivery coordinates: latitude,longitude";
+      }
+      if (nextStep === "AWAITING_SUPPLIER_HUB") {
+        return "Now send supplier hub coordinates: latitude,longitude";
       }
       return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
         user.user_type,
@@ -588,15 +796,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
 
     if (user.current_step === "AWAITING_PAYBILL_DETAILS") {
       const parts = trimmed.split(",");
-      if (parts.length < 2) {
-        return "Use format: 222222, ACC123";
-      }
+      if (parts.length < 2) return "Use format: 222222, ACC123";
       const businessNumber = parts[0].replace(/[^\d]/g, "");
       const accountNumber = parts.slice(1).join(",").trim().slice(0, 50);
       if (!businessNumber || !accountNumber) {
         return "Both Business Number and Account Number are required.";
       }
-      const nextStep = user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+      const nextStep = nextStepAfterPaymentSelection(user.user_type);
       await client.query(
         `
           UPDATE platform_users
@@ -608,18 +814,62 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         `,
         [user.id, businessNumber, accountNumber, nextStep]
       );
-      if (nextStep === "AWAITING_CATALOG") {
-        return (
-          `Payment profile saved. Seller ID ${formatPublicMaskedId(
-            user.user_type,
-            user.masked_id
-          )}.\n` + "Add first item: Commodity, Price per bag"
-        );
+      if (nextStep === "AWAITING_BUYER_LOCATION") {
+        return "Now send buyer delivery coordinates: latitude,longitude";
+      }
+      if (nextStep === "AWAITING_SUPPLIER_HUB") {
+        return "Now send supplier hub coordinates: latitude,longitude";
       }
       return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
         user.user_type,
         user.masked_id
       )}.`;
+    }
+
+    if (user.current_step === "AWAITING_BUYER_LOCATION") {
+      const coords = parseCoordinates(trimmed);
+      if (!coords) {
+        return "Invalid location format. Use: latitude,longitude";
+      }
+      await client.query(
+        `
+          UPDATE platform_users
+          SET delivery_latitude = $2,
+              delivery_longitude = $3,
+              current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, coords.latitude, coords.longitude]
+      );
+      return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
+        user.user_type,
+        user.masked_id
+      )}. Type 'buy' to view offers.`;
+    }
+
+    if (user.current_step === "AWAITING_SUPPLIER_HUB") {
+      const coords = parseCoordinates(trimmed);
+      if (!coords) {
+        return "Invalid location format. Use: latitude,longitude";
+      }
+      await client.query(
+        `
+          UPDATE platform_users
+          SET hub_latitude = $2,
+              hub_longitude = $3,
+              current_step = 'AWAITING_CATALOG',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, coords.latitude, coords.longitude]
+      );
+      return (
+        `Hub location saved. Seller ID ${formatPublicMaskedId(
+          user.user_type,
+          user.masked_id
+        )}.\n` + "Now add your first item: Commodity, Price per bag"
+      );
     }
 
     if (user.current_step === "AWAITING_CATALOG") {
@@ -690,6 +940,22 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       ensureUserRecord(client, communicationPhone)
     );
 
+    if (user.current_step === "AWAITING_ORDER_CONFIRM") {
+      if (rawMessage.trim() !== "1") {
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Reply 1 to confirm checkout and trigger STK Push."));
+      }
+      const confirmed = await confirmPendingOrderPayment({ user, senderPhone });
+      return res.type("text/xml").send(
+        twimlResponse(
+          confirmed.alreadyInitiated
+            ? `Payment prompt already initiated for order #${confirmed.orderId}.`
+            : `Confirmed. STK Push sent for KSh ${confirmed.totalAmountKes.toLocaleString()}.`
+        )
+      );
+    }
+
     if (!user.user_type || user.current_step !== "COMPLETED") {
       const onboardingResponse = await processOnboardingStep({
         user,
@@ -730,42 +996,19 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           quantity: Number(buyMatch[2]),
         });
 
-        const stkResponse = await initiateStkPush({
-          phoneNumber: senderPhone,
-          amount: payload.order.total_amount_kes,
-          accountReference: `ORD-${payload.order.id.slice(0, 8)}`,
-          transactionDesc: `AgizaHub Seller #${buyMatch[1]}`,
-        });
-
-        await query(
-          `
-            INSERT INTO mpesa_stk_transactions (
-              order_id, checkout_request_id, merchant_request_id, amount_kes, msisdn, status, raw_response
-            )
-            VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6)
-          `,
-          [
-            payload.order.id,
-            stkResponse.CheckoutRequestID,
-            stkResponse.MerchantRequestID || null,
-            payload.order.total_amount_kes,
-            senderPhone,
-            JSON.stringify(stkResponse),
-          ]
-        );
-
-        await query(
-          `UPDATE orders SET mpesa_checkout_request_id = $2, updated_at = NOW() WHERE id = $1`,
-          [payload.order.id, stkResponse.CheckoutRequestID]
-        );
-
         return res.type("text/xml").send(
           twimlResponse(
-            [
-              `Order ${payload.order.id.slice(0, 8)} created for ${payload.catalogItem.commodity_name}.`,
-              `Seller #${payload.seller.masked_id}. Lipa STK KES ${payload.order.total_amount_kes}.`,
-              `Delivery OTP: ${payload.otp}.`,
-            ].join(" ")
+            formatCheckoutSummary({
+              quantity: buyMatch[2],
+              commodityName: payload.catalogItem.commodity_name,
+              unitMeasure: payload.catalogItem.unit_measure,
+              unitPrice: payload.catalogItem.price_per_unit,
+              itemSubtotal: payload.itemSubtotal,
+              supplierHubLabel: payload.catalogItem.location_label,
+              buyerDestinationLabel: `Buyer #${payload.buyer.masked_id} shop`,
+              transport: payload.transport,
+              totalAmount: payload.order.total_amount_kes,
+            })
           )
         );
       }

@@ -25,6 +25,9 @@ const requiredKeys = [
   "DARAJA_INITIATOR_PASSWORD",
   "MATCHING_COMMISSION_PERCENT",
   "LOGISTICS_PREMIUM_PERCENT",
+  "TRANSPORT_BASE_FEE_KES",
+  "TRANSPORT_BASE_DISTANCE_KM",
+  "TRANSPORT_PER_KM_FEE_KES",
   "DEFAULT_DELIVERY_FEE_KES",
   "TREASURY_SWEEP_THRESHOLD_KES",
 ];
@@ -73,14 +76,14 @@ module.exports = {
   },
   businessRules: {
     matchingCommissionPercent: clamp(
-      process.env.MATCHING_COMMISSION_PERCENT || "5",
+      process.env.MATCHING_COMMISSION_PERCENT || "3",
       2,
       5
     ),
     logisticsPremiumPercent: Number(process.env.LOGISTICS_PREMIUM_PERCENT || "10"),
-    premiumSupplierMonthlyFeeKes: Number(
-      process.env.PREMIUM_SUPPLIER_MONTHLY_FEE_KES || "1500"
-    ),
+    transportBaseFeeKes: Number(process.env.TRANSPORT_BASE_FEE_KES || "1500"),
+    transportBaseDistanceKm: Number(process.env.TRANSPORT_BASE_DISTANCE_KM || "10"),
+    transportPerKmFeeKes: Number(process.env.TRANSPORT_PER_KM_FEE_KES || "40"),
     defaultDeliveryFeeKes: Number(process.env.DEFAULT_DELIVERY_FEE_KES || "150"),
     treasurySweepThresholdKes: Number(
       process.env.TREASURY_SWEEP_THRESHOLD_KES || "50000"
