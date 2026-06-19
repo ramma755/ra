@@ -1,0 +1,25 @@
+{
+  "name": "agizahub",
+  "version": "1.0.0",
+  "description": "AgizaHub AI backend for WhatsApp/SMS marketplace automation",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "migrate": "node src/migrations/runMigrations.js",
+    "check": "node --check src/server.js && node --check src/app.js"
+  },
+  "dependencies": {
+    "axios": "^1.18.0",
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-cron": "^4.4.1",
+    "openai": "^6.44.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
