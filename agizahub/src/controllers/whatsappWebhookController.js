@@ -20,8 +20,8 @@ const {
   rejectRefundByAdmin,
 } = require("../services/settlementService");
 const {
-  haversineDistanceKm,
   computeTransportBreakdown,
+  resolveRouteDistance,
 } = require("../services/logisticsPricingService");
 const logger = require("../services/logger");
 
@@ -228,6 +228,7 @@ const formatCheckoutSummary = ({
   itemSubtotal,
   supplierHubLabel,
   buyerDestinationLabel,
+  routeLabel,
   transport,
   totalAmount,
 }) =>
@@ -239,9 +240,11 @@ const formatCheckoutSummary = ({
     ).toLocaleString()} = KSh ${Number(itemSubtotal).toLocaleString()}`,
     `Supplier Hub: ${supplierHubLabel}`,
     `Delivery Destination: ${buyerDestinationLabel}`,
+    `Route: ${routeLabel}`,
     `Transport Fee (${transport.distanceKm} KM): KSh ${Number(
       transport.totalTransportFeeKes
     ).toLocaleString()}`,
+    `Distance provider: ${transport.distanceProvider}`,
     "--------------------------",
     `TOTAL AMOUNT TO PAY: KSh ${Number(totalAmount).toLocaleString()}`,
     "Reply 1 to confirm. M-Pesa prompt will appear instantly.",
@@ -305,15 +308,20 @@ const createOrderFromCatalogRequest = async ({
       ((itemSubtotal * matchingPercent) / 100).toFixed(2)
     );
 
-    const distanceKm =
-      haversineDistanceKm({
-        fromLat: seller.hub_latitude,
-        fromLng: seller.hub_longitude,
-        toLat: buyer.delivery_latitude,
-        toLng: buyer.delivery_longitude,
-      }) || Number(env.businessRules.transportBaseDistanceKm);
-
-    const transport = computeTransportBreakdown({ distanceKm });
+    const distanceResult = await resolveRouteDistance({
+      fromLat: seller.hub_latitude,
+      fromLng: seller.hub_longitude,
+      toLat: buyer.delivery_latitude,
+      toLng: buyer.delivery_longitude,
+    });
+    const routeLabel = `${catalogItem.location_label} -> ${
+      buyer.company_name || `Buyer #${buyer.masked_id} shop`
+    }`;
+    const transport = {
+      ...computeTransportBreakdown({ distanceKm: distanceResult.distanceKm }),
+      distanceProvider: distanceResult.distanceProvider,
+      routeLabel,
+    };
     const vendorAmount = Number((itemSubtotal - matchingCommission).toFixed(2));
     const driverAmount = Number(transport.rawTransportFeeKes);
     const platformFee = Number(
@@ -421,6 +429,7 @@ const createOrderFromCatalogRequest = async ({
       buyer,
       catalogItem,
       transport,
+      routeLabel,
       itemSubtotal,
       otp,
     };
@@ -1005,7 +1014,9 @@ const handleIncomingWhatsapp = async (req, res, next) => {
               unitPrice: payload.catalogItem.price_per_unit,
               itemSubtotal: payload.itemSubtotal,
               supplierHubLabel: payload.catalogItem.location_label,
-              buyerDestinationLabel: `Buyer #${payload.buyer.masked_id} shop`,
+              buyerDestinationLabel:
+                payload.buyer.company_name || `Buyer #${payload.buyer.masked_id} shop`,
+              routeLabel: payload.routeLabel,
               transport: payload.transport,
               totalAmount: payload.order.total_amount_kes,
             })

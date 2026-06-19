@@ -1,3 +1,4 @@
+const axios = require("axios");
 const env = require("../config/env");
 
 const toRadians = (degrees) => (Number(degrees) * Math.PI) / 180;
@@ -56,7 +57,70 @@ const computeTransportBreakdown = ({ distanceKm }) => {
   };
 };
 
+const googleDistanceKm = async ({ fromLat, fromLng, toLat, toLng }) => {
+  if (!env.googleMaps.apiKey) {
+    return null;
+  }
+
+  const origins = `${Number(fromLat)},${Number(fromLng)}`;
+  const destinations = `${Number(toLat)},${Number(toLng)}`;
+  const response = await axios.get(env.googleMaps.distanceMatrixUrl, {
+    params: {
+      origins,
+      destinations,
+      mode: "driving",
+      units: "metric",
+      key: env.googleMaps.apiKey,
+    },
+    timeout: 12000,
+  });
+
+  if (response.data?.status !== "OK") {
+    throw new Error(`Google distance matrix failed: ${response.data?.status}`);
+  }
+
+  const element = response.data?.rows?.[0]?.elements?.[0];
+  if (!element || element.status !== "OK") {
+    throw new Error(
+      `Google distance element unavailable: ${element?.status || "UNKNOWN"}`
+    );
+  }
+
+  const meters = Number(element.distance?.value || 0);
+  if (!meters || Number.isNaN(meters)) {
+    throw new Error("Google distance value missing");
+  }
+
+  return Number((meters / 1000).toFixed(2));
+};
+
+const resolveRouteDistance = async ({ fromLat, fromLng, toLat, toLng }) => {
+  try {
+    const km = await googleDistanceKm({ fromLat, fromLng, toLat, toLng });
+    if (km != null) {
+      return {
+        distanceKm: km,
+        distanceProvider: "google-distance-matrix",
+      };
+    }
+  } catch (_error) {
+    // Fallback to local haversine for resilience.
+  }
+
+  return {
+    distanceKm:
+      haversineDistanceKm({
+        fromLat,
+        fromLng,
+        toLat,
+        toLng,
+      }) || Number(env.businessRules.transportBaseDistanceKm),
+    distanceProvider: "haversine-fallback",
+  };
+};
+
 module.exports = {
   haversineDistanceKm,
   computeTransportBreakdown,
+  resolveRouteDistance,
 };

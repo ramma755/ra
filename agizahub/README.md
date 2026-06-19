@@ -142,6 +142,9 @@ Transport charge engine for buyer checkout:
   - Base fee `TRANSPORT_BASE_FEE_KES` for first `TRANSPORT_BASE_DISTANCE_KM`
   - Extra fee `TRANSPORT_PER_KM_FEE_KES` for each additional KM
   - Platform logistics premium `%` on top of raw transport fee
+- Distance provider:
+  - Primary: Google Distance Matrix API (driving distance)
+  - Fallback: internal Haversine calculation when Google API is not configured/unavailable
 
 ---
 

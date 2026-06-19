@@ -92,4 +92,10 @@ module.exports = {
   admin: {
     whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || "",
   },
+  googleMaps: {
+    apiKey: process.env.GOOGLE_MAPS_API_KEY || "",
+    distanceMatrixUrl:
+      process.env.GOOGLE_MAPS_DISTANCE_MATRIX_URL ||
+      "https://maps.googleapis.com/maps/api/distancematrix/json",
+  },
 };
