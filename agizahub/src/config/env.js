@@ -105,5 +105,7 @@ module.exports = {
     distanceMatrixUrl:
       process.env.GOOGLE_MAPS_DISTANCE_MATRIX_URL ||
       "https://maps.googleapis.com/maps/api/distancematrix/json",
+    cacheTtlHours: Number(process.env.DISTANCE_CACHE_TTL_HOURS || "168"),
+    routePrecisionDp: Number(process.env.DISTANCE_CACHE_PRECISION_DP || "4"),
   },
 };

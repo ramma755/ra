@@ -1,5 +1,6 @@
 const axios = require("axios");
 const env = require("../config/env");
+const { query } = require("../config/db");
 
 const toRadians = (degrees) => (Number(degrees) * Math.PI) / 180;
 
@@ -57,6 +58,96 @@ const computeTransportBreakdown = ({ distanceKm }) => {
   };
 };
 
+const routeKey = ({ fromLat, fromLng, toLat, toLng }) => {
+  const dp = Math.max(1, Number(env.googleMaps.routePrecisionDp || 4));
+  const normalize = (value) => Number(value).toFixed(dp);
+  return `${normalize(fromLat)}:${normalize(fromLng)}->${normalize(toLat)}:${normalize(
+    toLng
+  )}`;
+};
+
+const readDistanceCache = async ({ key }) => {
+  try {
+    const result = await query(
+      `
+        SELECT distance_km, provider, updated_at
+        FROM route_distance_cache
+        WHERE route_key = $1
+        LIMIT 1
+      `,
+      [key]
+    );
+    if (result.rowCount === 0) return null;
+
+    const row = result.rows[0];
+    const ttlMs = Number(env.googleMaps.cacheTtlHours || 168) * 60 * 60 * 1000;
+    const ageMs = Date.now() - new Date(row.updated_at).getTime();
+    if (ageMs > ttlMs) {
+      return null;
+    }
+
+    await query(
+      `
+        UPDATE route_distance_cache
+        SET hit_count = hit_count + 1,
+            updated_at = NOW()
+        WHERE route_key = $1
+      `,
+      [key]
+    );
+
+    return {
+      distanceKm: Number(row.distance_km),
+      distanceProvider: `cache:${row.provider}`,
+    };
+  } catch (_error) {
+    return null;
+  }
+};
+
+const writeDistanceCache = async ({
+  key,
+  fromLat,
+  fromLng,
+  toLat,
+  toLng,
+  distanceKm,
+  provider,
+}) => {
+  try {
+    await query(
+      `
+        INSERT INTO route_distance_cache (
+          route_key,
+          origin_latitude,
+          origin_longitude,
+          destination_latitude,
+          destination_longitude,
+          distance_km,
+          provider,
+          hit_count,
+          updated_at,
+          last_refreshed_at
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,0,NOW(),NOW())
+        ON CONFLICT (route_key)
+        DO UPDATE SET
+          origin_latitude = EXCLUDED.origin_latitude,
+          origin_longitude = EXCLUDED.origin_longitude,
+          destination_latitude = EXCLUDED.destination_latitude,
+          destination_longitude = EXCLUDED.destination_longitude,
+          distance_km = EXCLUDED.distance_km,
+          provider = EXCLUDED.provider,
+          updated_at = NOW(),
+          last_refreshed_at = NOW()
+      `,
+      [key, fromLat, fromLng, toLat, toLng, distanceKm, provider]
+    );
+  } catch (_error) {
+    // Cache write failures should not block pricing.
+  }
+};
+
 const googleDistanceKm = async ({ fromLat, fromLng, toLat, toLng }) => {
   if (!env.googleMaps.apiKey) {
     return null;
@@ -95,9 +186,24 @@ const googleDistanceKm = async ({ fromLat, fromLng, toLat, toLng }) => {
 };
 
 const resolveRouteDistance = async ({ fromLat, fromLng, toLat, toLng }) => {
+  const key = routeKey({ fromLat, fromLng, toLat, toLng });
+  const cached = await readDistanceCache({ key });
+  if (cached) {
+    return cached;
+  }
+
   try {
     const km = await googleDistanceKm({ fromLat, fromLng, toLat, toLng });
     if (km != null) {
+      await writeDistanceCache({
+        key,
+        fromLat,
+        fromLng,
+        toLat,
+        toLng,
+        distanceKm: km,
+        provider: "google-distance-matrix",
+      });
       return {
         distanceKm: km,
         distanceProvider: "google-distance-matrix",
@@ -107,14 +213,26 @@ const resolveRouteDistance = async ({ fromLat, fromLng, toLat, toLng }) => {
     // Fallback to local haversine for resilience.
   }
 
+  const haversineKm =
+    haversineDistanceKm({
+      fromLat,
+      fromLng,
+      toLat,
+      toLng,
+    }) || Number(env.businessRules.transportBaseDistanceKm);
+
+  await writeDistanceCache({
+    key,
+    fromLat,
+    fromLng,
+    toLat,
+    toLng,
+    distanceKm: haversineKm,
+    provider: "haversine-fallback",
+  });
+
   return {
-    distanceKm:
-      haversineDistanceKm({
-        fromLat,
-        fromLng,
-        toLat,
-        toLng,
-      }) || Number(env.businessRules.transportBaseDistanceKm),
+    distanceKm: haversineKm,
     distanceProvider: "haversine-fallback",
   };
 };

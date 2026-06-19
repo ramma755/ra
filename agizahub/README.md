@@ -148,6 +148,7 @@ Transport charge engine for buyer checkout:
 - Distance provider:
   - Primary: Google Distance Matrix API (driving distance)
   - Fallback: internal Haversine calculation when Google API is not configured/unavailable
+  - Cached: repeat routes reuse DB cache (`route_distance_cache`) to reduce API cost/latency
 
 Transport-only mode (no supplier involved):
 
@@ -157,6 +158,10 @@ Transport-only mode (no supplier involved):
   - `PERSONAL_RELOCATION` (household and personal goods)
 - Requester confirms with `1` after quote summary + STK prompt
 - Drivers can view open jobs via `jobs` and claim via `Claim <OrderID>`
+- Driver targeting is queued in `transport_job_broadcasts` using vehicle class + corridor matching
+- Drivers can set targeting profile:
+  - `vehicle 1|2|3` to set capacity class
+  - `corridor <town/area>` to set preferred corridor (or leave blank for broad matching)
 - Driver finalizes delivery with `Deliver <OrderID> <OTP>`
 - Admin still controls release with `Release <OrderID>`
 

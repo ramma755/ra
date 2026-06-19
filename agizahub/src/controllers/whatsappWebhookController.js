@@ -23,6 +23,11 @@ const {
   computeTransportBreakdown,
   resolveRouteDistance,
 } = require("../services/logisticsPricingService");
+const {
+  enqueueTransportJobBroadcasts,
+  listQueuedJobsForDriver,
+  claimBroadcastJob,
+} = require("../services/transportBroadcastService");
 const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
@@ -101,6 +106,12 @@ const parseVehicleType = (choice) => {
   if (choice === "1") return "MOTORBIKE";
   if (choice === "2") return "TUKTUK_PICKUP";
   if (choice === "3") return "CANTER_TRUCK";
+  return null;
+};
+
+const defaultTransporterVehicleType = (userType) => {
+  if (userType === "TRANSPORTER_BIKE") return "MOTORBIKE";
+  if (userType === "TRANSPORTER_TRUCK") return "CANTER_TRUCK";
   return null;
 };
 
@@ -291,6 +302,8 @@ const formatTransportOnlySummary = ({
   requesterCommissionKes,
   requesterTotalKes,
   transporterCommissionPercent,
+  broadcastedDrivers,
+  corridorKey,
 }) =>
   [
     "AGIZAHUB TRANSPORT SUMMARY",
@@ -306,42 +319,27 @@ const formatTransportOnlySummary = ({
       requesterCommissionKes
     ).toLocaleString()}`,
     `Transporter commission at release: ${transporterCommissionPercent}% (auto-deducted from driver payout)`,
+    `Targeted drivers pinged: ${broadcastedDrivers} (corridor ${corridorKey})`,
     `TOTAL TO PAY NOW: KSh ${Number(requesterTotalKes).toLocaleString()}`,
     "--------------------------",
     "Reply 1 to confirm and trigger STK push.",
   ].join("\n");
 
-const listOpenTransportJobsForDriver = async () => {
-  const jobs = await query(
-    `
-      SELECT
-        id,
-        transport_job_category,
-        pickup_location_label,
-        delivery_location,
-        requested_vehicle_type,
-        raw_transport_fee_kes,
-        created_at
-      FROM orders
-      WHERE order_type = 'TRANSPORT_ONLY'
-        AND transporter_masked_id IS NULL
-        AND payment_status IN ('PENDING_PAYMENT', 'PAID_HELD')
-      ORDER BY created_at DESC
-      LIMIT 8
-    `
-  );
+const listOpenTransportJobsForDriver = async ({ driverMaskedId }) => {
+  const jobs = await listQueuedJobsForDriver({ driverMaskedId });
 
-  if (jobs.rowCount === 0) {
+  if (jobs.length === 0) {
     return "No open transport jobs right now.";
   }
 
-  const lines = ["Open transport jobs (claim with: Claim <OrderID>):"];
-  for (const job of jobs.rows) {
+  const lines = ["Targeted transport jobs (claim with: Claim <OrderID>):"];
+  for (const job of jobs) {
     lines.push(
       "",
       `#${job.id}`,
       `${job.transport_job_category} | ${job.requested_vehicle_type}`,
       `${job.pickup_location_label} -> ${job.delivery_location}`,
+      `Corridor: ${job.corridor_key || "n/a"}`,
       `Raw fare: KSh ${Number(job.raw_transport_fee_kes || 0).toLocaleString()}`
     );
   }
@@ -349,45 +347,7 @@ const listOpenTransportJobsForDriver = async () => {
 };
 
 const claimTransportJobForDriver = async ({ orderId, driverMaskedId }) =>
-  transaction(async (client) => {
-    const result = await client.query(
-      `
-        UPDATE orders
-        SET transporter_masked_id = $2,
-            updated_at = NOW()
-        WHERE id = $1
-          AND order_type = 'TRANSPORT_ONLY'
-          AND transporter_masked_id IS NULL
-        RETURNING id, pickup_location_label, delivery_location, requested_vehicle_type
-      `,
-      [orderId, driverMaskedId]
-    );
-    if (result.rowCount === 0) {
-      throw new Error("Transport job unavailable or already claimed");
-    }
-
-    await client.query(
-      `
-        INSERT INTO admin_action_events (
-          order_id,
-          actor_phone,
-          action_type,
-          action_payload
-        )
-        VALUES ($1, $2, 'TRANSPORT_JOB_CLAIMED', $3)
-      `,
-      [
-        orderId,
-        driverMaskedId,
-        JSON.stringify({
-          orderId,
-          driverMaskedId,
-        }),
-      ]
-    );
-
-    return result.rows[0];
-  });
+  claimBroadcastJob({ orderId, driverMaskedId });
 
 const createTransportOnlyOrder = async ({
   requesterUser,
@@ -600,6 +560,9 @@ const createTransportOnlyOrder = async ({
       transporterCommissionPercent,
       transporterCommissionKes,
       transporterNetPayoutKes,
+      pickupLabel: payload.pickupLabel,
+      dropoffLabel: payload.dropoffLabel,
+      vehicleType: payload.vehicleType,
       otp,
     };
   });
@@ -708,6 +671,13 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
       payload,
     });
 
+    const broadcastSummary = await enqueueTransportJobBroadcasts({
+      orderId: transportOrder.order.id,
+      requestedVehicleType: transportOrder.vehicleType,
+      pickupLocationLabel: transportOrder.pickupLabel,
+      dropoffLocationLabel: transportOrder.dropoffLabel,
+    });
+
     return formatTransportOnlySummary({
       category: payload.category,
       pickupLabel: payload.pickupLabel,
@@ -718,6 +688,8 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
       requesterCommissionKes: transportOrder.requesterCommissionKes,
       requesterTotalKes: transportOrder.requesterTotalKes,
       transporterCommissionPercent: transportOrder.transporterCommissionPercent,
+      broadcastedDrivers: broadcastSummary.queuedDrivers,
+      corridorKey: broadcastSummary.corridorKey,
     });
   }
 
@@ -1151,6 +1123,9 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
 const nextStepAfterPaymentSelection = (userType) => {
   if (userType === "BUYER") return "AWAITING_BUYER_LOCATION";
   if (userType === "SUPPLIER") return "AWAITING_SUPPLIER_HUB";
+  if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK") {
+    return "AWAITING_TRANSPORTER_CORRIDOR";
+  }
   return "COMPLETED";
 };
 
@@ -1215,16 +1190,25 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
             SET payment_mode = 'SEND_MONEY',
                 payout_phone = $2,
                 current_step = $3,
+                transporter_vehicle_type = COALESCE(transporter_vehicle_type, $4),
                 updated_at = NOW()
             WHERE id = $1
           `,
-          [user.id, senderPhone, nextStep]
+          [
+            user.id,
+            senderPhone,
+            nextStep,
+            defaultTransporterVehicleType(user.user_type),
+          ]
         );
         if (nextStep === "AWAITING_BUYER_LOCATION") {
           return "Send your delivery location coordinates as: latitude,longitude (example: -1.286389,36.817223)";
         }
         if (nextStep === "AWAITING_SUPPLIER_HUB") {
           return "Send your supplier hub coordinates as: latitude,longitude (example: -0.727322,36.429387)";
+        }
+        if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
+          return "Set your service corridor/town (example: Nairobi Eastlands). You can later change with: corridor <name>.";
         }
         return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
           user.user_type,
@@ -1270,16 +1254,20 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           UPDATE platform_users
           SET business_number = $2,
               current_step = $3,
+              transporter_vehicle_type = COALESCE(transporter_vehicle_type, $4),
               updated_at = NOW()
           WHERE id = $1
         `,
-        [user.id, till, nextStep]
+        [user.id, till, nextStep, defaultTransporterVehicleType(user.user_type)]
       );
       if (nextStep === "AWAITING_BUYER_LOCATION") {
         return "Now send buyer delivery coordinates: latitude,longitude";
       }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
         return "Now send supplier hub coordinates: latitude,longitude";
+      }
+      if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
+        return "Set your service corridor/town (example: Nairobi Eastlands).";
       }
       return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
         user.user_type,
@@ -1302,16 +1290,26 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           SET business_number = $2,
               account_number = $3,
               current_step = $4,
+              transporter_vehicle_type = COALESCE(transporter_vehicle_type, $5),
               updated_at = NOW()
           WHERE id = $1
         `,
-        [user.id, businessNumber, accountNumber, nextStep]
+        [
+          user.id,
+          businessNumber,
+          accountNumber,
+          nextStep,
+          defaultTransporterVehicleType(user.user_type),
+        ]
       );
       if (nextStep === "AWAITING_BUYER_LOCATION") {
         return "Now send buyer delivery coordinates: latitude,longitude";
       }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
         return "Now send supplier hub coordinates: latitude,longitude";
+      }
+      if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
+        return "Set your service corridor/town (example: Nairobi Eastlands).";
       }
       return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
         user.user_type,
@@ -1363,6 +1361,27 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           user.masked_id
         )}.\n` + "Now add your first item: Commodity, Price per bag"
       );
+    }
+
+    if (user.current_step === "AWAITING_TRANSPORTER_CORRIDOR") {
+      const corridor = trimmed.slice(0, 80);
+      if (!corridor) {
+        return "Please send your corridor/town label (example: Nairobi CBD).";
+      }
+      await client.query(
+        `
+          UPDATE platform_users
+          SET service_corridor_label = $2,
+              current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, corridor]
+      );
+      return `Transporter profile completed! ID ${formatPublicMaskedId(
+        user.user_type,
+        user.masked_id
+      )}. You can view targeted jobs with 'jobs'.`;
     }
 
     if (user.current_step === "AWAITING_CATALOG") {
@@ -1553,11 +1572,62 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
+      /^corridor\s+/i.test(rawMessage)
+    ) {
+      const corridor = rawMessage.replace(/^corridor\s+/i, "").trim().slice(0, 80);
+      if (!corridor) {
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Use: corridor <town/area>. Example: corridor Nairobi Eastlands"));
+      }
+      await query(
+        `
+          UPDATE platform_users
+          SET service_corridor_label = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, corridor]
+      );
+      return res
+        .type("text/xml")
+        .send(twimlResponse(`Corridor updated to "${corridor}".`));
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
+      /^vehicle\s+/i.test(rawMessage)
+    ) {
+      const choice = rawMessage.replace(/^vehicle\s+/i, "").trim();
+      const vehicleType = parseVehicleType(choice);
+      if (!vehicleType) {
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Use: vehicle 1|2|3 (1=MOTORBIKE, 2=TUKTUK_PICKUP, 3=CANTER_TRUCK)"));
+      }
+      await query(
+        `
+          UPDATE platform_users
+          SET transporter_vehicle_type = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, vehicleType]
+      );
+      return res
+        .type("text/xml")
+        .send(twimlResponse(`Vehicle profile updated to ${vehicleType}.`));
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
       (lowerMessage === "jobs" || lowerMessage === "open jobs")
     ) {
       return res
         .type("text/xml")
-        .send(twimlResponse(await listOpenTransportJobsForDriver()));
+        .send(twimlResponse(await listOpenTransportJobsForDriver({ driverMaskedId: user.masked_id })));
     }
 
     if (
