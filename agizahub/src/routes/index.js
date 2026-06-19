@@ -9,7 +9,14 @@ const {
   handleB2bResultCallback,
   handleB2bTimeoutCallback,
 } = require("../controllers/mpesaB2bController");
-const { confirmDeliveryOtp } = require("../controllers/ordersController");
+const {
+  confirmDeliveryOtp,
+  releaseOrder,
+  holdOrder,
+  requestRefund,
+  approveRefund,
+  rejectRefund,
+} = require("../controllers/ordersController");
 
 const router = express.Router();
 
@@ -25,5 +32,10 @@ router.post("/webhooks/mpesa/b2b/result", handleB2bResultCallback);
 router.post("/webhooks/mpesa/b2b/timeout", handleB2bTimeoutCallback);
 
 router.post("/orders/:orderId/confirm-otp", confirmDeliveryOtp);
+router.post("/orders/:orderId/release", releaseOrder);
+router.post("/orders/:orderId/hold", holdOrder);
+router.post("/orders/:orderId/refund-request", requestRefund);
+router.post("/orders/:orderId/refund/approve", approveRefund);
+router.post("/orders/:orderId/refund/reject", rejectRefund);
 
 module.exports = router;

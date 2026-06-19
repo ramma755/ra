@@ -23,7 +23,8 @@ const requiredKeys = [
   "DARAJA_B2B_TIMEOUT_URL",
   "DARAJA_INITIATOR_NAME",
   "DARAJA_INITIATOR_PASSWORD",
-  "PLATFORM_COMMISSION_PERCENT",
+  "MATCHING_COMMISSION_PERCENT",
+  "LOGISTICS_PREMIUM_PERCENT",
   "DEFAULT_DELIVERY_FEE_KES",
   "TREASURY_SWEEP_THRESHOLD_KES",
 ];
@@ -36,6 +37,8 @@ if (missingKeys.length > 0) {
       "The app may fail until these are configured."
   );
 }
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
 
 module.exports = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -69,12 +72,21 @@ module.exports = {
     queueTimeoutUrl: process.env.DARAJA_QUEUE_TIMEOUT_URL,
   },
   businessRules: {
-    platformCommissionPercent: Number(
-      process.env.PLATFORM_COMMISSION_PERCENT || "8"
+    matchingCommissionPercent: clamp(
+      process.env.MATCHING_COMMISSION_PERCENT || "5",
+      2,
+      5
+    ),
+    logisticsPremiumPercent: Number(process.env.LOGISTICS_PREMIUM_PERCENT || "10"),
+    premiumSupplierMonthlyFeeKes: Number(
+      process.env.PREMIUM_SUPPLIER_MONTHLY_FEE_KES || "1500"
     ),
     defaultDeliveryFeeKes: Number(process.env.DEFAULT_DELIVERY_FEE_KES || "150"),
     treasurySweepThresholdKes: Number(
       process.env.TREASURY_SWEEP_THRESHOLD_KES || "50000"
     ),
+  },
+  admin: {
+    whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || "",
   },
 };

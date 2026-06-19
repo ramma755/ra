@@ -2,14 +2,21 @@
 
 Backend MVP for a WhatsApp-first broker workflow:
 
-- Receive WhatsApp orders (Twilio sandbox webhook)
+- Receive WhatsApp messages (Twilio sandbox webhook)
+- Run zero-friction onboarding with masked 5-digit IDs and no contact leakage
 - Parse conversational Sheng/Swahili/English orders with OpenAI
 - Store orders in Supabase Postgres
 - Trigger M-Pesa STK push (Daraja sandbox)
+- Apply monetization rules:
+  - Matching commission: `2%` to `5%` (config-clamped)
+  - Logistics premium: `10%` of transport fee
+  - Premium supplier tier fee: `KSh 1,500/month` (tracked for reporting)
 - Hold escrow and release payouts through dynamic routing:
   - `PHONE -> B2C`
   - `PAYBILL -> B2B BusinessPayBill`
   - `TILL -> B2B BusinessBuyGoods`
+- Gate every delivery payout behind explicit admin release/hold action
+- Support refund request -> admin approve/reject pipeline
 - Reconcile callbacks and run treasury/reconciliation jobs
 
 ---
@@ -79,8 +86,11 @@ Expected outcome:
    - Local: `https://<ngrok>.ngrok-free.app/webhooks/whatsapp/inbound`
    - Deployed: `https://<render-domain>/webhooks/whatsapp/inbound`
 3. Join sandbox from your WhatsApp using provided `join <code>`
-4. Send message example:
-   - `Nipee 20kg nyanya to Westlands`
+4. Send onboarding flow examples:
+   - `1` (buyer registration)
+   - `2` (supplier registration)
+   - `buy` (buyer sees masked catalog offers)
+   - `Buy 89421 10` (buyer places masked-ID order)
 
 Expected outcome:
 
@@ -102,12 +112,13 @@ Set callback URLs to your API domain:
 Expected state transitions:
 
 - `PENDING_PAYMENT -> PAID_HELD` (on successful STK callback)
-- OTP confirmation endpoint starts settlement payouts
+- driver OTP confirmation moves order to `AWAITING_RELEASE`
+- admin `Release <OrderID>` command triggers payouts
 - payout callbacks update legs and order `distribution_status`
 
 ---
 
-## 5) OTP-confirmed settlement flow
+## 5) OTP + admin-gated settlement flow
 
 When rider delivers, confirm OTP:
 
@@ -119,8 +130,9 @@ curl -X POST "http://localhost:10000/orders/<order-id>/confirm-otp" \
 
 On success:
 
-- payout legs created (`vendor`, `driver`)
-- routing executed via B2C/B2B based on wallet type
+- payout legs are prepared and order is locked in `AWAITING_RELEASE`
+- admin must explicitly release funds (`Release <OrderID>`)
+- routing executes via B2C/B2B based on wallet/payment mode
 - callbacks reconcile each leg to `SUCCESS/FAILED/TIMEOUT`
 
 ---
@@ -163,6 +175,11 @@ Expected outcome:
 - `POST /webhooks/mpesa/b2b/result`
 - `POST /webhooks/mpesa/b2b/timeout`
 - `POST /orders/:orderId/confirm-otp`
+- `POST /orders/:orderId/release`
+- `POST /orders/:orderId/hold`
+- `POST /orders/:orderId/refund-request`
+- `POST /orders/:orderId/refund/approve`
+- `POST /orders/:orderId/refund/reject`
 
 ---
 

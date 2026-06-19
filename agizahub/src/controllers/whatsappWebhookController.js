@@ -3,14 +3,69 @@ const { query, transaction } = require("../config/db");
 const env = require("../config/env");
 const { parseMarketplaceMessage } = require("../services/aiParserService");
 const { initiateStkPush, normalizeMsisdn } = require("../services/darajaService");
+const {
+  normalizeCommunicationPhone,
+  toPayoutPhone,
+  roleFromChoice,
+  paymentModeFromChoice,
+  formatPublicMaskedId,
+  ensureUserRecord,
+} = require("../services/platformUserService");
+const {
+  verifyOtpAndQueueRelease,
+  releaseOrderByAdmin,
+  holdOrderByAdmin,
+  requestOrderRefund,
+  approveRefundByAdmin,
+  rejectRefundByAdmin,
+} = require("../services/settlementService");
 const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
   `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`;
 
+const onboardingMenu = () =>
+  [
+    "Jambo! Welcome to AgizaHub. I see you are new here.",
+    "How would you like to use our platform today?",
+    "",
+    "Reply with:",
+    "1 - Register as a Buyer",
+    "2 - Register as a Supplier / Wholesaler",
+    "3 - Register as a Transporter (Short distance / Motorbike)",
+    "4 - Register as a Transporter (Long distance / Truck)",
+  ].join("\n");
+
+const paymentModeMenu = () =>
+  [
+    "How should AgizaHub process payments or refunds to your account?",
+    "Reply with:",
+    "1 - Send Money (M-Pesa to your phone)",
+    "2 - Buy Goods Till Number",
+    "3 - Business Paybill",
+  ].join("\n");
+
+const normalizeOrderIdFromText = (text) => (text || "").trim();
+
+const parseCatalogLine = (rawMessage) => {
+  const chunks = rawMessage.split(",");
+  if (chunks.length < 2) return null;
+  const commodity = chunks[0].trim();
+  const price = Number(chunks[1].replace(/[^\d.]/g, "").trim());
+  if (!commodity || Number.isNaN(price) || price <= 0) return null;
+  return { commodity, price };
+};
+
+const resolveUserByMaskedId = async (client, maskedId) => {
+  const result = await client.query(
+    `SELECT * FROM platform_users WHERE masked_id = $1 LIMIT 1`,
+    [maskedId]
+  );
+  return result.rows[0] || null;
+};
+
 const resolveProduct = async (client, parsedProduct) => {
   if (!parsedProduct) return null;
-
   const direct = await client.query(
     `
       SELECT p.*
@@ -35,16 +90,12 @@ const resolveProduct = async (client, parsedProduct) => {
   return slang.rows[0] || null;
 };
 
-const resolveVendorInventory = async (client, productId, preferredVendor) => {
-  if (!productId) return null;
-  return client.query(
+const resolveVendorInventory = async (client, productId, preferredVendor) =>
+  client.query(
     `
       SELECT
         vi.*,
-        v.name AS vendor_name,
-        v.wallet_type,
-        v.mpesa_identifier,
-        v.account_reference
+        v.name AS vendor_name
       FROM vendor_inventory vi
       JOIN vendors v ON v.id = vi.vendor_id
       WHERE vi.product_id = $1
@@ -53,12 +104,11 @@ const resolveVendorInventory = async (client, productId, preferredVendor) => {
           $2::text IS NULL
           OR LOWER(v.name) LIKE CONCAT('%', LOWER($2), '%')
         )
-      ORDER BY vi.price_kes ASC
+      ORDER BY v.is_premium DESC, vi.price_kes ASC
       LIMIT 1
     `,
     [productId, preferredVendor || null]
   );
-};
 
 const resolveTransporter = async (client) =>
   client.query(
@@ -71,121 +121,701 @@ const resolveTransporter = async (client) =>
     `
   );
 
+const listCatalogOffersMessage = async () => {
+  const result = await query(
+    `
+      SELECT
+        c.commodity_name,
+        c.price_per_unit,
+        c.unit_measure,
+        c.location_label,
+        u.masked_id,
+        u.company_name
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.is_active = TRUE
+        AND u.user_type = 'SUPPLIER'
+      ORDER BY u.subscription_tier DESC, c.price_per_unit ASC
+      LIMIT 15
+    `
+  );
+
+  if (result.rowCount === 0) {
+    return "Hakuna offers kwa sasa. Suppliers wanapakia stock hivi karibuni.";
+  }
+
+  const lines = ["Available Offers Today:"];
+  for (const item of result.rows) {
+    lines.push(
+      "",
+      `${item.commodity_name}`,
+      `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id})`,
+      `Price: KSh ${Number(item.price_per_unit).toLocaleString()} per ${item.unit_measure}`,
+      `Location: ${item.location_label}`,
+      `Buy format: Buy ${item.masked_id} 10`
+    );
+  }
+  return lines.join("\n");
+};
+
+const isAdminPhone = (communicationPhone, senderPhone) => {
+  const configured = (env.admin.whatsappPhone || "").trim();
+  if (!configured) return false;
+  if (configured === communicationPhone) return true;
+  const configuredDigits = normalizeMsisdn(configured.replace("whatsapp:+", ""));
+  return configuredDigits && configuredDigits === senderPhone;
+};
+
+const handleAdminCommand = async (rawMessage, senderPhone) => {
+  const releaseMatch = rawMessage.match(/^release\s+([a-zA-Z0-9-]+)/i);
+  if (releaseMatch) {
+    const orderId = normalizeOrderIdFromText(releaseMatch[1]);
+    await releaseOrderByAdmin({ orderId, actorPhone: senderPhone });
+    return `Order #${orderId} released. Payouts submitted.`;
+  }
+
+  const holdMatch = rawMessage.match(/^hold\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i);
+  if (holdMatch) {
+    const orderId = normalizeOrderIdFromText(holdMatch[1]);
+    await holdOrderByAdmin({
+      orderId,
+      actorPhone: senderPhone,
+      note: holdMatch[2] || null,
+    });
+    return `Order #${orderId} is now ON_HOLD for investigation.`;
+  }
+
+  const approveMatch = rawMessage.match(/^approve\s+([a-zA-Z0-9-]+)/i);
+  if (approveMatch) {
+    const orderId = normalizeOrderIdFromText(approveMatch[1]);
+    await approveRefundByAdmin({ orderId, actorPhone: senderPhone });
+    return `Refund approved for order #${orderId}. Buyer refund submitted.`;
+  }
+
+  const rejectMatch = rawMessage.match(/^reject\s+([a-zA-Z0-9-]+)/i);
+  if (rejectMatch) {
+    const orderId = normalizeOrderIdFromText(rejectMatch[1]);
+    await rejectRefundByAdmin({ orderId, actorPhone: senderPhone });
+    await releaseOrderByAdmin({ orderId, actorPhone: senderPhone });
+    return `Refund rejected for #${orderId}. Standard payouts released.`;
+  }
+
+  return null;
+};
+
+const createOrderFromCatalogRequest = async ({
+  buyer,
+  senderPhone,
+  rawMessage,
+  sellerMaskedId,
+  quantity,
+}) =>
+  transaction(async (client) => {
+    const seller = await resolveUserByMaskedId(client, sellerMaskedId);
+    if (!seller || seller.user_type !== "SUPPLIER") {
+      throw new Error("Supplier ID not found");
+    }
+
+    const itemResult = await client.query(
+      `
+        SELECT *
+        FROM catalog_items
+        WHERE seller_masked_id = $1
+          AND is_active = TRUE
+        ORDER BY price_per_unit ASC
+        LIMIT 1
+      `,
+      [sellerMaskedId]
+    );
+    if (itemResult.rowCount === 0) {
+      throw new Error("Supplier has no active catalog item");
+    }
+    const catalogItem = itemResult.rows[0];
+
+    const transporterResult = await client.query(
+      `
+        SELECT *
+        FROM platform_users
+        WHERE user_type IN ('TRANSPORTER_BIKE', 'TRANSPORTER_TRUCK')
+          AND current_step = 'COMPLETED'
+        ORDER BY created_at ASC
+        LIMIT 1
+      `
+    );
+    const transporter = transporterResult.rows[0] || null;
+
+    const subtotal = Number(quantity) * Number(catalogItem.price_per_unit);
+    const deliveryFee = Number(env.businessRules.defaultDeliveryFeeKes);
+    const matchingPercent = Number(env.businessRules.matchingCommissionPercent);
+    const logisticsPercent = Number(env.businessRules.logisticsPremiumPercent);
+    const matchingCommission = Number(
+      ((subtotal * matchingPercent) / 100).toFixed(2)
+    );
+    const logisticsPremium = Number(
+      ((deliveryFee * logisticsPercent) / 100).toFixed(2)
+    );
+    const driverAmount = Number((deliveryFee - logisticsPremium).toFixed(2));
+    const vendorAmount = Number((subtotal - matchingCommission).toFixed(2));
+    const platformFee = Number((matchingCommission + logisticsPremium).toFixed(2));
+    const totalAmount = Number((subtotal + deliveryFee).toFixed(2));
+    const otp = String(Math.floor(1000 + Math.random() * 9000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    const orderInsert = await client.query(
+      `
+        INSERT INTO orders (
+          source_channel,
+          buyer_phone,
+          buyer_name,
+          raw_message,
+          parsed_payload,
+          quantity,
+          delivery_location,
+          total_amount_kes,
+          platform_fee_kes,
+          vendor_amount_kes,
+          driver_amount_kes,
+          delivery_fee_kes,
+          otp_code_hash,
+          otp_expires_at,
+          payment_status,
+          settlement_status,
+          distribution_status,
+          buyer_masked_id,
+          supplier_masked_id,
+          transporter_masked_id,
+          commission_percent,
+          logistics_premium_percent,
+          matching_commission_kes,
+          logistics_premium_kes,
+          premium_supplier_fee_kes,
+          is_premium_supplier
+        )
+        VALUES (
+          'WHATSAPP',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW() + INTERVAL '12 hours',
+          'PENDING_PAYMENT',
+          'NOT_STARTED',
+          'NOT_STARTED',
+          $13,$14,$15,$16,$17,$18,$19,$20,$21
+        )
+        RETURNING *
+      `,
+      [
+        senderPhone,
+        buyer.company_name || "Buyer",
+        rawMessage,
+        JSON.stringify({
+          source: "catalog_buy_command",
+          sellerMaskedId,
+          quantity,
+          commodity: catalogItem.commodity_name,
+          pricePerUnit: catalogItem.price_per_unit,
+        }),
+        quantity,
+        catalogItem.location_label,
+        totalAmount,
+        platformFee,
+        vendorAmount,
+        driverAmount,
+        deliveryFee,
+        otpHash,
+        buyer.masked_id,
+        seller.masked_id,
+        transporter?.masked_id || null,
+        matchingPercent,
+        logisticsPercent,
+        matchingCommission,
+        logisticsPremium,
+        seller.subscription_tier === "PREMIUM"
+          ? env.businessRules.premiumSupplierMonthlyFeeKes
+          : 0,
+        seller.subscription_tier === "PREMIUM",
+      ]
+    );
+
+    return { order: orderInsert.rows[0], seller, catalogItem, otp };
+  });
+
+const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => {
+  const parsed = await parseMarketplaceMessage(rawMessage);
+  if (parsed.intent !== "order_request") {
+    return {
+      errorMessage:
+        "Sijaelewa order. Tumia Buy [Seller ID] [Qty] ama andika 'buy' kuona offers.",
+    };
+  }
+
+  const payload = await transaction(async (client) => {
+    const product = await resolveProduct(client, parsed.product);
+    if (!product) {
+      throw new Error("Product not found. Add it in products/product_slang first.");
+    }
+
+    const inventoryResult = await resolveVendorInventory(
+      client,
+      product.id,
+      parsed.preferredVendor
+    );
+    if (inventoryResult.rowCount === 0) {
+      throw new Error("No active vendor inventory found for this product.");
+    }
+    const inventory = inventoryResult.rows[0];
+
+    const transporterResult = await resolveTransporter(client);
+    const transporter = transporterResult.rows[0] || null;
+
+    const quantity = Number(parsed.quantity || 1);
+    const deliveryFee = Number(env.businessRules.defaultDeliveryFeeKes);
+    const subtotal = quantity * Number(inventory.price_kes);
+    const matchingCommission = Number(
+      ((subtotal * env.businessRules.matchingCommissionPercent) / 100).toFixed(2)
+    );
+    const logisticsPremium = Number(
+      ((deliveryFee * env.businessRules.logisticsPremiumPercent) / 100).toFixed(2)
+    );
+    const platformFee = Number((matchingCommission + logisticsPremium).toFixed(2));
+    const vendorAmount = Number((subtotal - matchingCommission).toFixed(2));
+    const driverAmount = Number((deliveryFee - logisticsPremium).toFixed(2));
+    const totalAmount = Number((subtotal + deliveryFee).toFixed(2));
+    const otp = String(Math.floor(1000 + Math.random() * 9000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    const orderResult = await client.query(
+      `
+        INSERT INTO orders (
+          source_channel,
+          buyer_phone,
+          buyer_name,
+          raw_message,
+          parsed_payload,
+          product_id,
+          quantity,
+          delivery_location,
+          vendor_id,
+          transporter_id,
+          total_amount_kes,
+          platform_fee_kes,
+          vendor_amount_kes,
+          driver_amount_kes,
+          delivery_fee_kes,
+          otp_code_hash,
+          otp_expires_at,
+          payment_status,
+          settlement_status,
+          distribution_status,
+          commission_percent,
+          logistics_premium_percent,
+          matching_commission_kes,
+          logistics_premium_kes
+        )
+        VALUES (
+          'WHATSAPP',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW() + INTERVAL '12 hours',
+          'PENDING_PAYMENT',
+          'NOT_STARTED',
+          'NOT_STARTED',
+          $16,$17,$18,$19
+        )
+        RETURNING *
+      `,
+      [
+        senderPhone,
+        senderName,
+        rawMessage,
+        JSON.stringify(parsed),
+        product.id,
+        quantity,
+        parsed.deliveryLocation || "To be confirmed",
+        inventory.vendor_id,
+        transporter ? transporter.id : null,
+        totalAmount,
+        platformFee,
+        vendorAmount,
+        driverAmount,
+        deliveryFee,
+        otpHash,
+        env.businessRules.matchingCommissionPercent,
+        env.businessRules.logisticsPremiumPercent,
+        matchingCommission,
+        logisticsPremium,
+      ]
+    );
+    return { order: orderResult.rows[0], inventory, otp };
+  });
+
+  return { payload };
+};
+
+const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
+  const trimmed = rawMessage.trim();
+
+  return transaction(async (client) => {
+    if (!user.user_type) {
+      const selectedRole = roleFromChoice(trimmed);
+      if (!selectedRole) return onboardingMenu();
+
+      if (selectedRole === "BUYER") {
+        await client.query(
+          `
+            UPDATE platform_users
+            SET user_type = $2,
+                current_step = 'AWAITING_PAYMENT_MODE',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id, selectedRole]
+        );
+        return paymentModeMenu();
+      }
+
+      await client.query(
+        `
+          UPDATE platform_users
+          SET user_type = $2,
+              current_step = 'AWAITING_COMPANY_NAME',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, selectedRole]
+      );
+      return "Great. Reply with your official business/company or transporter name.";
+    }
+
+    if (user.current_step === "AWAITING_COMPANY_NAME") {
+      await client.query(
+        `
+          UPDATE platform_users
+          SET company_name = $2,
+              current_step = 'AWAITING_PAYMENT_MODE',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, trimmed.slice(0, 100)]
+      );
+      return paymentModeMenu();
+    }
+
+    if (user.current_step === "AWAITING_PAYMENT_MODE") {
+      const paymentMode = paymentModeFromChoice(trimmed);
+      if (!paymentMode) return `Invalid option.\n\n${paymentModeMenu()}`;
+
+      if (paymentMode === "SEND_MONEY") {
+        const nextStep =
+          user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+        await client.query(
+          `
+            UPDATE platform_users
+            SET payment_mode = 'SEND_MONEY',
+                payout_phone = $2,
+                current_step = $3,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id, senderPhone, nextStep]
+        );
+        if (nextStep === "AWAITING_CATALOG") {
+          return (
+            `Thank you. Your Seller ID is ${formatPublicMaskedId(
+              user.user_type,
+              user.masked_id
+            )}.\n` +
+            "Now add your first catalog item:\nCommodity, Price per bag\nExample: Potatoes, 2400"
+          );
+        }
+        return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
+          user.user_type,
+          user.masked_id
+        )}.`;
+      }
+
+      if (paymentMode === "TILL") {
+        await client.query(
+          `
+            UPDATE platform_users
+            SET payment_mode = 'TILL',
+                current_step = 'AWAITING_TILL_NUMBER',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return "Please reply with your 5-7 digit Till Number.";
+      }
+
+      await client.query(
+        `
+          UPDATE platform_users
+          SET payment_mode = 'PAYBILL',
+              current_step = 'AWAITING_PAYBILL_DETAILS',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return "Please reply with: Business Number, Account Number (e.g., 222222, ACC123)";
+    }
+
+    if (user.current_step === "AWAITING_TILL_NUMBER") {
+      const till = trimmed.replace(/[^\d]/g, "");
+      if (!/^\d{5,7}$/.test(till)) {
+        return "Invalid Till Number. Send only 5-7 digits.";
+      }
+      const nextStep = user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+      await client.query(
+        `
+          UPDATE platform_users
+          SET business_number = $2,
+              current_step = $3,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, till, nextStep]
+      );
+      if (nextStep === "AWAITING_CATALOG") {
+        return (
+          `Payment profile saved. Seller ID ${formatPublicMaskedId(
+            user.user_type,
+            user.masked_id
+          )}.\n` + "Add first item: Commodity, Price per bag"
+        );
+      }
+      return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
+        user.user_type,
+        user.masked_id
+      )}.`;
+    }
+
+    if (user.current_step === "AWAITING_PAYBILL_DETAILS") {
+      const parts = trimmed.split(",");
+      if (parts.length < 2) {
+        return "Use format: 222222, ACC123";
+      }
+      const businessNumber = parts[0].replace(/[^\d]/g, "");
+      const accountNumber = parts.slice(1).join(",").trim().slice(0, 50);
+      if (!businessNumber || !accountNumber) {
+        return "Both Business Number and Account Number are required.";
+      }
+      const nextStep = user.user_type === "SUPPLIER" ? "AWAITING_CATALOG" : "COMPLETED";
+      await client.query(
+        `
+          UPDATE platform_users
+          SET business_number = $2,
+              account_number = $3,
+              current_step = $4,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, businessNumber, accountNumber, nextStep]
+      );
+      if (nextStep === "AWAITING_CATALOG") {
+        return (
+          `Payment profile saved. Seller ID ${formatPublicMaskedId(
+            user.user_type,
+            user.masked_id
+          )}.\n` + "Add first item: Commodity, Price per bag"
+        );
+      }
+      return `Registration complete! Your secure account ID is ${formatPublicMaskedId(
+        user.user_type,
+        user.masked_id
+      )}.`;
+    }
+
+    if (user.current_step === "AWAITING_CATALOG") {
+      const parsedCatalog = parseCatalogLine(trimmed);
+      if (!parsedCatalog) {
+        return "Invalid format. Use: Commodity, Price per bag. Example: Onions, 1800";
+      }
+      await client.query(
+        `
+          INSERT INTO catalog_items (seller_masked_id, commodity_name, price_per_unit)
+          VALUES ($1, $2, $3)
+        `,
+        [user.masked_id, parsedCatalog.commodity, parsedCatalog.price]
+      );
+      await client.query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return `Catalog item saved for Seller #${user.masked_id}. Buyers only see masked IDs.`;
+    }
+
+    await client.query(
+      `
+        UPDATE platform_users
+        SET current_step = 'START',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+    return onboardingMenu();
+  });
+};
+
 const handleIncomingWhatsapp = async (req, res, next) => {
   try {
     const rawMessage = (req.body.Body || "").trim();
-    const from = req.body.From || "";
-    const senderPhone = normalizeMsisdn(req.body.WaId || from.replace("whatsapp:", ""));
-    const senderName = req.body.ProfileName || "Buyer";
+    const communicationPhone = normalizeCommunicationPhone({
+      from: req.body.From || "",
+      waId: req.body.WaId || "",
+    });
+    const senderPhone = toPayoutPhone(communicationPhone);
+    const senderName = req.body.ProfileName || "User";
+    const lowerMessage = rawMessage.toLowerCase();
 
     if (!rawMessage) {
-      return res
-        .type("text/xml")
-        .send(twimlResponse("Tuma order yako kwa ujumbe mmoja. Mfano: 20kg nyanya to Gikomba."));
+      return res.type("text/xml").send(twimlResponse(onboardingMenu()));
     }
 
-    const parsed = await parseMarketplaceMessage(rawMessage);
-    if (parsed.intent !== "order_request") {
+    if (isAdminPhone(communicationPhone, senderPhone)) {
+      const adminResponse = await handleAdminCommand(rawMessage, senderPhone);
+      if (adminResponse) return res.type("text/xml").send(twimlResponse(adminResponse));
       return res
         .type("text/xml")
         .send(
           twimlResponse(
-            "Sijaelewa order. Tuma kama: 20kg nyanya to Westlands kesho asubuhi."
+            "Admin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>."
           )
         );
     }
 
-    const payload = await transaction(async (client) => {
-      const product = await resolveProduct(client, parsed.product);
-      if (!product) {
-        throw new Error("Product not found. Add it in products/product_slang first.");
+    const user = await transaction(async (client) =>
+      ensureUserRecord(client, communicationPhone)
+    );
+
+    if (!user.user_type || user.current_step !== "COMPLETED") {
+      const onboardingResponse = await processOnboardingStep({
+        user,
+        rawMessage,
+        senderPhone,
+      });
+      return res.type("text/xml").send(twimlResponse(onboardingResponse));
+    }
+
+    if (lowerMessage === "buy" || lowerMessage === "offers" || lowerMessage === "view") {
+      return res.type("text/xml").send(twimlResponse(await listCatalogOffersMessage()));
+    }
+
+    if (user.user_type === "SUPPLIER" && rawMessage.includes(",")) {
+      const parsedCatalog = parseCatalogLine(rawMessage);
+      if (parsedCatalog) {
+        await query(
+          `
+            INSERT INTO catalog_items (seller_masked_id, commodity_name, price_per_unit)
+            VALUES ($1, $2, $3)
+          `,
+          [user.masked_id, parsedCatalog.commodity, parsedCatalog.price]
+        );
+        return res
+          .type("text/xml")
+          .send(twimlResponse(`Added ${parsedCatalog.commodity} at KSh ${parsedCatalog.price}.`));
       }
+    }
 
-      const inventoryResult = await resolveVendorInventory(
-        client,
-        product.id,
-        parsed.preferredVendor
-      );
-      if (inventoryResult.rowCount === 0) {
-        throw new Error("No active vendor inventory found for this product.");
-      }
-      const inventory = inventoryResult.rows[0];
-
-      const transporterResult = await resolveTransporter(client);
-      const transporter = transporterResult.rows[0] || null;
-
-      const quantity = Number(parsed.quantity || 1);
-      const deliveryFee = Number(env.businessRules.defaultDeliveryFeeKes);
-      const subtotal = quantity * Number(inventory.price_kes);
-      const platformFee = Number(
-        ((subtotal * env.businessRules.platformCommissionPercent) / 100).toFixed(2)
-      );
-      const vendorAmount = Number((subtotal - platformFee).toFixed(2));
-      const driverAmount = deliveryFee;
-      const totalAmount = Number((subtotal + deliveryFee).toFixed(2));
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
-      const otpHash = await bcrypt.hash(otp, 10);
-
-      const orderResult = await client.query(
-        `
-          INSERT INTO orders (
-            source_channel,
-            buyer_phone,
-            buyer_name,
-            raw_message,
-            parsed_payload,
-            product_id,
-            quantity,
-            delivery_location,
-            vendor_id,
-            transporter_id,
-            total_amount_kes,
-            platform_fee_kes,
-            vendor_amount_kes,
-            driver_amount_kes,
-            delivery_fee_kes,
-            otp_code_hash,
-            otp_expires_at,
-            payment_status,
-            settlement_status,
-            distribution_status
-          )
-          VALUES (
-            'WHATSAPP',
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW() + INTERVAL '12 hours',
-            'PENDING_PAYMENT',
-            'NOT_STARTED',
-            'NOT_STARTED'
-          )
-          RETURNING *
-        `,
-        [
+    if (user.user_type === "BUYER") {
+      const buyMatch = rawMessage.match(/^buy\s+(\d{5})\s+(\d+(?:\.\d+)?)$/i);
+      if (buyMatch) {
+        const payload = await createOrderFromCatalogRequest({
+          buyer: user,
           senderPhone,
-          senderName,
           rawMessage,
-          JSON.stringify(parsed),
-          product.id,
-          quantity,
-          parsed.deliveryLocation || "To be confirmed",
-          inventory.vendor_id,
-          transporter ? transporter.id : null,
-          totalAmount,
-          platformFee,
-          vendorAmount,
-          driverAmount,
-          deliveryFee,
-          otpHash,
-        ]
+          sellerMaskedId: buyMatch[1],
+          quantity: Number(buyMatch[2]),
+        });
+
+        const stkResponse = await initiateStkPush({
+          phoneNumber: senderPhone,
+          amount: payload.order.total_amount_kes,
+          accountReference: `ORD-${payload.order.id.slice(0, 8)}`,
+          transactionDesc: `AgizaHub Seller #${buyMatch[1]}`,
+        });
+
+        await query(
+          `
+            INSERT INTO mpesa_stk_transactions (
+              order_id, checkout_request_id, merchant_request_id, amount_kes, msisdn, status, raw_response
+            )
+            VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6)
+          `,
+          [
+            payload.order.id,
+            stkResponse.CheckoutRequestID,
+            stkResponse.MerchantRequestID || null,
+            payload.order.total_amount_kes,
+            senderPhone,
+            JSON.stringify(stkResponse),
+          ]
+        );
+
+        await query(
+          `UPDATE orders SET mpesa_checkout_request_id = $2, updated_at = NOW() WHERE id = $1`,
+          [payload.order.id, stkResponse.CheckoutRequestID]
+        );
+
+        return res.type("text/xml").send(
+          twimlResponse(
+            [
+              `Order ${payload.order.id.slice(0, 8)} created for ${payload.catalogItem.commodity_name}.`,
+              `Seller #${payload.seller.masked_id}. Lipa STK KES ${payload.order.total_amount_kes}.`,
+              `Delivery OTP: ${payload.otp}.`,
+            ].join(" ")
+          )
+        );
+      }
+
+      const refundMatch = rawMessage.match(/^refund\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i);
+      if (refundMatch) {
+        await requestOrderRefund({
+          orderId: normalizeOrderIdFromText(refundMatch[1]),
+          buyerMaskedId: user.masked_id,
+          buyerPhone: senderPhone,
+          reason: refundMatch[2] || null,
+        });
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Refund request logged. Funds locked pending admin decision."));
+      }
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
+      /^deliver\s+/i.test(rawMessage)
+    ) {
+      const deliverMatch = rawMessage.match(/^deliver\s+([a-zA-Z0-9-]+)\s+(\d{4})$/i);
+      if (!deliverMatch) {
+        return res
+          .type("text/xml")
+          .send(twimlResponse("Use format: Deliver <OrderID> <4-digit-OTP>"));
+      }
+      await verifyOtpAndQueueRelease({
+        orderId: normalizeOrderIdFromText(deliverMatch[1]),
+        otp: deliverMatch[2],
+      });
+      return res.type("text/xml").send(
+        twimlResponse(
+          "OTP verified. Order moved to AWAITING_RELEASE and sent to admin for final approval."
+        )
       );
+    }
 
-      return {
-        order: orderResult.rows[0],
-        inventory,
-        transporter,
-        otp,
-      };
+    const legacyResult = await processLegacyAiOrder({
+      rawMessage,
+      senderPhone,
+      senderName,
     });
+    if (legacyResult.errorMessage) {
+      return res.type("text/xml").send(twimlResponse(legacyResult.errorMessage));
+    }
 
+    const { payload } = legacyResult;
     const stkResponse = await initiateStkPush({
       phoneNumber: senderPhone,
       amount: payload.order.total_amount_kes,
@@ -196,13 +826,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     await query(
       `
         INSERT INTO mpesa_stk_transactions (
-          order_id,
-          checkout_request_id,
-          merchant_request_id,
-          amount_kes,
-          msisdn,
-          status,
-          raw_response
+          order_id, checkout_request_id, merchant_request_id, amount_kes, msisdn, status, raw_response
         )
         VALUES ($1,$2,$3,$4,$5,'REQUESTED',$6)
       `,
@@ -215,28 +839,16 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         JSON.stringify(stkResponse),
       ]
     );
-
     await query(
-      `
-        UPDATE orders
-        SET mpesa_checkout_request_id = $2, updated_at = NOW()
-        WHERE id = $1
-      `,
+      `UPDATE orders SET mpesa_checkout_request_id = $2, updated_at = NOW() WHERE id = $1`,
       [payload.order.id, stkResponse.CheckoutRequestID]
     );
 
-    logger.info("Order created from WhatsApp message", {
-      orderId: payload.order.id,
-      buyer: senderPhone,
-    });
-
     return res.type("text/xml").send(
       twimlResponse(
-        [
-          `Order ${payload.order.id.slice(0, 8)} imepokelewa.`,
-          `Lipa M-Pesa prompt ya KES ${payload.order.total_amount_kes}.`,
-          `OTP ya delivery: ${payload.otp} (share on delivery only).`,
-        ].join(" ")
+        `Order ${payload.order.id.slice(0, 8)} imepokelewa. Lipa STK KES ${
+          payload.order.total_amount_kes
+        }. OTP: ${payload.otp}.`
       )
     );
   } catch (error) {
