@@ -2,7 +2,7 @@
 
 Backend MVP for a WhatsApp-first broker workflow:
 
-- Receive WhatsApp messages (Twilio sandbox webhook)
+- Receive WhatsApp messages via gateway webhook (WAHA or Twilio)
 - Run zero-friction onboarding with masked 5-digit IDs and no contact leakage
 - Parse conversational Sheng/Swahili/English orders with OpenAI
 - Store orders in Supabase Postgres
@@ -82,7 +82,20 @@ Expected outcome:
 
 ---
 
-## 3) Twilio WhatsApp Sandbox (free testing)
+## 3) WhatsApp gateway setup (WAHA live or Twilio sandbox)
+
+### Option A: WAHA (live line via QR Link Device)
+
+1. Deploy WAHA (Render/Railway/docker)
+2. Open WAHA dashboard and link your dedicated WhatsApp line via QR
+3. Set WAHA outbound/inbound webhook to:
+   - `https://<render-domain>/webhooks/whatsapp/inbound`
+4. In app env set:
+   - `WHATSAPP_GATEWAY_PROVIDER=WAHA`
+   - `WHATSAPP_GATEWAY_API_KEY=<your_waha_key>`
+   - `WAHA_BASE_URL`, `WAHA_SESSION_NAME`, `WAHA_SEND_PATH`
+
+### Option B: Twilio Sandbox (testing)
 
 1. Open Twilio Console -> Messaging -> Try it out -> WhatsApp Sandbox
 2. Set sandbox inbound webhook:
@@ -97,8 +110,8 @@ Expected outcome:
 
 Expected outcome:
 
-- API creates order
-- STK Push request is initiated
+- API receives inbound message and replies through configured gateway
+- STK Push request is initiated for payment-confirmed flows
 
 ---
 
@@ -180,7 +193,7 @@ Transport-only mode (no supplier involved):
 4. Build command: `npm install`
 5. Start command: `npm start`
 6. Add all `.env` keys in Render Dashboard
-7. Update Twilio + Daraja webhooks to Render URL
+7. Update WhatsApp gateway + Daraja webhooks to Render URL
 
 Expected outcome:
 
@@ -192,6 +205,7 @@ Expected outcome:
 ## 7) Free alternatives
 
 - WhatsApp provider:
+  - WAHA (live QR-linked line, no Meta document gate)
   - Twilio Sandbox (easy/faster start)
   - Africa's Talking (local-market friendly, can switch later)
 - Hosting:

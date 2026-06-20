@@ -4,13 +4,15 @@ const env = require("../config/env");
 const { parseMarketplaceMessage } = require("../services/aiParserService");
 const { initiateStkPush, normalizeMsisdn } = require("../services/darajaService");
 const {
-  normalizeCommunicationPhone,
-  toPayoutPhone,
   roleFromChoice,
   paymentModeFromChoice,
   formatPublicMaskedId,
   ensureUserRecord,
 } = require("../services/platformUserService");
+const {
+  parseInboundWhatsappPayload,
+  sendGatewayReply,
+} = require("../services/whatsappGatewayService");
 const {
   verifyOtpAndQueueRelease,
   releaseOrderByAdmin,
@@ -32,6 +34,27 @@ const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
   `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`;
+
+const respondToUser = async ({ res, provider, senderPhone, message }) => {
+  if (provider === "WAHA") {
+    await sendGatewayReply({
+      provider,
+      toPhone: senderPhone,
+      message,
+    });
+    return res.status(200).json({ ok: true, provider });
+  }
+  return res.type("text/xml").send(twimlResponse(message));
+};
+
+const acknowledgeWebhook = ({ res, provider }) => {
+  if (provider === "WAHA") {
+    return res.status(200).json({ ok: true, provider });
+  }
+  return res
+    .type("text/xml")
+    .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
+};
 
 const onboardingMenu = () =>
   [
@@ -1442,29 +1465,49 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
 
 const handleIncomingWhatsapp = async (req, res, next) => {
   try {
-    const rawMessage = (req.body.Body || "").trim();
-    const communicationPhone = normalizeCommunicationPhone({
-      from: req.body.From || "",
-      waId: req.body.WaId || "",
-    });
-    const senderPhone = toPayoutPhone(communicationPhone);
-    const senderName = req.body.ProfileName || "User";
+    const inbound = parseInboundWhatsappPayload(req.body);
+    if (inbound.ignore) {
+      return acknowledgeWebhook({
+        res,
+        provider: inbound.provider || env.whatsappGateway.provider,
+      });
+    }
+
+    const {
+      provider,
+      rawMessage,
+      communicationPhone,
+      senderPhone,
+      senderName,
+    } = inbound;
     const lowerMessage = rawMessage.toLowerCase();
 
     if (!rawMessage) {
-      return res.type("text/xml").send(twimlResponse(onboardingMenu()));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: onboardingMenu(),
+      });
     }
 
     if (isAdminPhone(communicationPhone, senderPhone)) {
       const adminResponse = await handleAdminCommand(rawMessage, senderPhone);
-      if (adminResponse) return res.type("text/xml").send(twimlResponse(adminResponse));
-      return res
-        .type("text/xml")
-        .send(
-          twimlResponse(
-            "Admin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>."
-          )
-        );
+      if (adminResponse) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: adminResponse,
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "Admin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>.",
+      });
     }
 
     const user = await transaction(async (client) =>
@@ -1473,18 +1516,22 @@ const handleIncomingWhatsapp = async (req, res, next) => {
 
     if (user.current_step === "AWAITING_ORDER_CONFIRM") {
       if (rawMessage.trim() !== "1") {
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Reply 1 to confirm checkout and trigger STK Push."));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Reply 1 to confirm checkout and trigger STK Push.",
+        });
       }
       const confirmed = await confirmPendingOrderPayment({ user, senderPhone });
-      return res.type("text/xml").send(
-        twimlResponse(
-          confirmed.alreadyInitiated
-            ? `Payment prompt already initiated for order #${confirmed.orderId}.`
-            : `Confirmed. STK Push sent for KSh ${confirmed.totalAmountKes.toLocaleString()}.`
-        )
-      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: confirmed.alreadyInitiated
+          ? `Payment prompt already initiated for order #${confirmed.orderId}.`
+          : `Confirmed. STK Push sent for KSh ${confirmed.totalAmountKes.toLocaleString()}.`,
+      });
     }
 
     if (
@@ -1498,7 +1545,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         rawMessage,
         senderPhone,
       });
-      return res.type("text/xml").send(twimlResponse(response));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: response,
+      });
     }
 
     if (!user.user_type || user.current_step !== "COMPLETED") {
@@ -1507,7 +1559,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         rawMessage,
         senderPhone,
       });
-      return res.type("text/xml").send(twimlResponse(onboardingResponse));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: onboardingResponse,
+      });
     }
 
     if (lowerMessage === "transport" || lowerMessage === "move") {
@@ -1521,11 +1578,21 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         `,
         [user.id]
       );
-      return res.type("text/xml").send(twimlResponse(transportCategoryMenu()));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: transportCategoryMenu(),
+      });
     }
 
     if (lowerMessage === "buy" || lowerMessage === "offers" || lowerMessage === "view") {
-      return res.type("text/xml").send(twimlResponse(await listCatalogOffersMessage()));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await listCatalogOffersMessage(),
+      });
     }
 
     if (user.user_type === "SUPPLIER" && rawMessage.includes(",")) {
@@ -1538,9 +1605,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           `,
           [user.masked_id, parsedCatalog.commodity, parsedCatalog.price]
         );
-        return res
-          .type("text/xml")
-          .send(twimlResponse(`Added ${parsedCatalog.commodity} at KSh ${parsedCatalog.price}.`));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `Added ${parsedCatalog.commodity} at KSh ${parsedCatalog.price}.`,
+        });
       }
     }
 
@@ -1555,23 +1625,24 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           quantity: Number(buyMatch[2]),
         });
 
-        return res.type("text/xml").send(
-          twimlResponse(
-            formatCheckoutSummary({
-              quantity: buyMatch[2],
-              commodityName: payload.catalogItem.commodity_name,
-              unitMeasure: payload.catalogItem.unit_measure,
-              unitPrice: payload.catalogItem.price_per_unit,
-              itemSubtotal: payload.itemSubtotal,
-              supplierHubLabel: payload.catalogItem.location_label,
-              buyerDestinationLabel:
-                payload.buyer.company_name || `Buyer #${payload.buyer.masked_id} shop`,
-              routeLabel: payload.routeLabel,
-              transport: payload.transport,
-              totalAmount: payload.order.total_amount_kes,
-            })
-          )
-        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: formatCheckoutSummary({
+            quantity: buyMatch[2],
+            commodityName: payload.catalogItem.commodity_name,
+            unitMeasure: payload.catalogItem.unit_measure,
+            unitPrice: payload.catalogItem.price_per_unit,
+            itemSubtotal: payload.itemSubtotal,
+            supplierHubLabel: payload.catalogItem.location_label,
+            buyerDestinationLabel:
+              payload.buyer.company_name || `Buyer #${payload.buyer.masked_id} shop`,
+            routeLabel: payload.routeLabel,
+            transport: payload.transport,
+            totalAmount: payload.order.total_amount_kes,
+          }),
+        });
       }
 
       const refundMatch = rawMessage.match(/^refund\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i);
@@ -1582,9 +1653,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           buyerPhone: senderPhone,
           reason: refundMatch[2] || null,
         });
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Refund request logged. Funds locked pending admin decision."));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Refund request logged. Funds locked pending admin decision.",
+        });
       }
     }
 
@@ -1595,9 +1669,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     ) {
       const corridor = rawMessage.replace(/^corridor\s+/i, "").trim().slice(0, 80);
       if (!corridor) {
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Use: corridor <town/area>. Example: corridor Nairobi Eastlands"));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Use: corridor <town/area>. Example: corridor Nairobi Eastlands",
+        });
       }
       await query(
         `
@@ -1608,9 +1685,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         `,
         [user.id, corridor]
       );
-      return res
-        .type("text/xml")
-        .send(twimlResponse(`Corridor updated to "${corridor}".`));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Corridor updated to "${corridor}".`,
+      });
     }
 
     if (
@@ -1621,9 +1701,13 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       const choice = rawMessage.replace(/^vehicle\s+/i, "").trim();
       const vehicleType = parseVehicleType(choice);
       if (!vehicleType) {
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Use: vehicle 1|2|3 (1=MOTORBIKE, 2=TUKTUK_PICKUP, 3=CANTER_TRUCK)"));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Use: vehicle 1|2|3 (1=MOTORBIKE, 2=TUKTUK_PICKUP, 3=CANTER_TRUCK)",
+        });
       }
       await query(
         `
@@ -1634,9 +1718,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         `,
         [user.id, vehicleType]
       );
-      return res
-        .type("text/xml")
-        .send(twimlResponse(`Vehicle profile updated to ${vehicleType}.`));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Vehicle profile updated to ${vehicleType}.`,
+      });
     }
 
     if (
@@ -1644,9 +1731,14 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         user.user_type === "TRANSPORTER_TRUCK") &&
       (lowerMessage === "jobs" || lowerMessage === "open jobs")
     ) {
-      return res
-        .type("text/xml")
-        .send(twimlResponse(await listOpenTransportJobsForDriver({ driverMaskedId: user.masked_id })));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await listOpenTransportJobsForDriver({
+          driverMaskedId: user.masked_id,
+        }),
+      });
     }
 
     if (
@@ -1656,19 +1748,23 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     ) {
       const claimMatch = rawMessage.match(/^claim\s+([a-zA-Z0-9-]+)/i);
       if (!claimMatch) {
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Use format: Claim <OrderID>"));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Use format: Claim <OrderID>",
+        });
       }
       const claim = await claimTransportJobForDriver({
         orderId: normalizeOrderIdFromText(claimMatch[1]),
         driverMaskedId: user.masked_id,
       });
-      return res.type("text/xml").send(
-        twimlResponse(
-          `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + delivery OTP.`
-        )
-      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + delivery OTP.`,
+      });
     }
 
     if (
@@ -1678,19 +1774,24 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     ) {
       const deliverMatch = rawMessage.match(/^deliver\s+([a-zA-Z0-9-]+)\s+(\d{4})$/i);
       if (!deliverMatch) {
-        return res
-          .type("text/xml")
-          .send(twimlResponse("Use format: Deliver <OrderID> <4-digit-OTP>"));
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Use format: Deliver <OrderID> <4-digit-OTP>",
+        });
       }
       await verifyOtpAndQueueRelease({
         orderId: normalizeOrderIdFromText(deliverMatch[1]),
         otp: deliverMatch[2],
       });
-      return res.type("text/xml").send(
-        twimlResponse(
-          "OTP verified. Order moved to AWAITING_RELEASE and sent to admin for final approval."
-        )
-      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "OTP verified. Order moved to AWAITING_RELEASE and sent to admin for final approval.",
+      });
     }
 
     const legacyResult = await processLegacyAiOrder({
@@ -1699,7 +1800,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       senderName,
     });
     if (legacyResult.errorMessage) {
-      return res.type("text/xml").send(twimlResponse(legacyResult.errorMessage));
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: legacyResult.errorMessage,
+      });
     }
 
     const { payload } = legacyResult;
@@ -1731,13 +1837,14 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       [payload.order.id, stkResponse.CheckoutRequestID]
     );
 
-    return res.type("text/xml").send(
-      twimlResponse(
-        `Order ${payload.order.id.slice(0, 8)} imepokelewa. Lipa STK KES ${
-          payload.order.total_amount_kes
-        }. OTP: ${payload.otp}.`
-      )
-    );
+    return respondToUser({
+      res,
+      provider,
+      senderPhone,
+      message: `Order ${payload.order.id.slice(0, 8)} imepokelewa. Lipa STK KES ${
+        payload.order.total_amount_kes
+      }. OTP: ${payload.otp}.`,
+    });
   } catch (error) {
     logger.error("WhatsApp inbound failed", { error: error.message });
     return next(error);

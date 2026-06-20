@@ -2,15 +2,14 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-const requiredKeys = [
+const whatsappProvider = (process.env.WHATSAPP_GATEWAY_PROVIDER || "TWILIO").toUpperCase();
+
+const baseRequiredKeys = [
   "NODE_ENV",
   "PORT",
   "DATABASE_URL",
   "OPENAI_API_KEY",
   "OPENAI_MODEL",
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN",
-  "TWILIO_WHATSAPP_NUMBER",
   "DARAJA_BASE_URL",
   "DARAJA_CONSUMER_KEY",
   "DARAJA_CONSUMER_SECRET",
@@ -35,6 +34,23 @@ const requiredKeys = [
   "TREASURY_SWEEP_THRESHOLD_KES",
 ];
 
+const twilioRequiredKeys = [
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_WHATSAPP_NUMBER",
+];
+
+const wahaRequiredKeys = [
+  "WHATSAPP_GATEWAY_API_KEY",
+  "WAHA_BASE_URL",
+  "WAHA_SESSION_NAME",
+];
+
+const requiredKeys = [
+  ...baseRequiredKeys,
+  ...(whatsappProvider === "WAHA" ? wahaRequiredKeys : twilioRequiredKeys),
+];
+
 const missingKeys = requiredKeys.filter((key) => !process.env[key]);
 if (missingKeys.length > 0) {
   // eslint-disable-next-line no-console
@@ -52,6 +68,15 @@ module.exports = {
   databaseUrl: process.env.DATABASE_URL,
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiModel: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+  whatsappGateway: {
+    provider: whatsappProvider,
+    apiKey: process.env.WHATSAPP_GATEWAY_API_KEY || "",
+    wahaBaseUrl: process.env.WAHA_BASE_URL || "",
+    wahaSessionName: process.env.WAHA_SESSION_NAME || "default",
+    wahaSendPath: process.env.WAHA_SEND_PATH || "/api/sendText",
+    wahaApiKeyHeader: process.env.WAHA_API_KEY_HEADER || "X-Api-Key",
+    webhookSecret: process.env.WAHA_WEBHOOK_SECRET || "",
+  },
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
     authToken: process.env.TWILIO_AUTH_TOKEN,
