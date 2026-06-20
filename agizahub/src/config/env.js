@@ -103,6 +103,9 @@ module.exports = {
   },
   admin: {
     whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || "",
+    alertChannel: process.env.ADMIN_ALERT_CHANNEL || "WHATSAPP",
+    alertFallbackDestination:
+      process.env.ADMIN_ALERT_FALLBACK_DESTINATION || "admin-dashboard",
   },
   googleMaps: {
     apiKey: process.env.GOOGLE_MAPS_API_KEY || "",

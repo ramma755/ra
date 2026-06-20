@@ -168,6 +168,7 @@ Transport-only mode (no supplier involved):
   - `TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES` (default 20)
   - if no delivery confirmation in the window, order auto-rematches to a new eligible transporter
   - applies across order categories that have assigned marketplace transporters
+  - each timeout rematch/unassign emits an admin alert template into `admin_notifications_outbox`
 
 ---
 

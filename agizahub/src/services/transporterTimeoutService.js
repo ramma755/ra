@@ -4,6 +4,19 @@ const {
   findEligibleDrivers,
   enqueueTransportJobBroadcasts,
 } = require("./transportBroadcastService");
+const { sendTransporterTimeoutAlert } = require("./alertService");
+const logger = require("./logger");
+
+const safeSendTimeoutAlert = async (event) => {
+  try {
+    await sendTransporterTimeoutAlert(event);
+  } catch (error) {
+    logger.warn("Failed to queue transporter timeout admin alert", {
+      orderId: event.orderId,
+      message: error.message,
+    });
+  }
+};
 
 const defaultRequestedVehicle = (order) =>
   order.requested_vehicle_type || "TUKTUK_PICKUP";
@@ -72,6 +85,18 @@ const reassignOrderTransporter = async (order) => {
       pickupLocationLabel,
       dropoffLocationLabel,
       excludeDriverMaskedIds: [order.transporter_masked_id],
+    });
+
+    await safeSendTimeoutAlert({
+      orderId: order.id,
+      orderType: order.order_type,
+      pickupLocationLabel,
+      dropoffLocationLabel,
+      requestedVehicleType,
+      previousTransporter: order.transporter_masked_id,
+      timeoutMinutes: Number(env.businessRules.transporterAssignmentTimeoutMinutes),
+      reassigned: false,
+      rebroadcastedDrivers: rebroadcast.queuedDrivers,
     });
 
     return {
@@ -172,6 +197,19 @@ const reassignOrderTransporter = async (order) => {
         }),
       ]
     );
+  });
+
+  await safeSendTimeoutAlert({
+    orderId: order.id,
+    orderType: order.order_type,
+    pickupLocationLabel,
+    dropoffLocationLabel,
+    requestedVehicleType,
+    previousTransporter: order.transporter_masked_id,
+    newTransporter: nextDriver,
+    timeoutMinutes: Number(env.businessRules.transporterAssignmentTimeoutMinutes),
+    reassigned: true,
+    rebroadcastedDrivers: 0,
   });
 
   return {
