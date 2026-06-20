@@ -94,6 +94,13 @@ Expected outcome:
    - `WHATSAPP_GATEWAY_PROVIDER=WAHA`
    - `WHATSAPP_GATEWAY_API_KEY=<your_waha_key>`
    - `WAHA_BASE_URL`, `WAHA_SESSION_NAME`, `WAHA_SEND_PATH`
+   - `WAHA_BOT_PHONE` (your linked Safaricom bot line)
+   - `ADMIN_WHATSAPP_PHONE` (authorized admin command line)
+
+Direct WhatsApp link for ads/landing pages:
+
+- format: `https://wa.me/<countrycode+number-without-plus>`
+- example for this bot line: `https://wa.me/254745127387`
 
 ### Option B: Twilio Sandbox (testing)
 

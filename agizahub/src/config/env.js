@@ -76,6 +76,7 @@ module.exports = {
     wahaSendPath: process.env.WAHA_SEND_PATH || "/api/sendText",
     wahaApiKeyHeader: process.env.WAHA_API_KEY_HEADER || "X-Api-Key",
     webhookSecret: process.env.WAHA_WEBHOOK_SECRET || "",
+    botPhone: process.env.WAHA_BOT_PHONE || "",
   },
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
