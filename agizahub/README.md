@@ -2,7 +2,7 @@
 
 Backend MVP for a WhatsApp-first broker workflow:
 
-- Receive WhatsApp messages via gateway webhook (OpenWA or Twilio)
+- Receive WhatsApp messages via gateway webhook (WAHA or Twilio)
 - Run zero-friction onboarding with masked 5-digit IDs and no contact leakage
 - Parse conversational Sheng/Swahili/English orders with OpenAI
 - Store orders in Supabase Postgres
@@ -82,18 +82,18 @@ Expected outcome:
 
 ---
 
-## 3) WhatsApp gateway setup (OpenWA live or Twilio sandbox)
+## 3) WhatsApp gateway setup (WAHA live or Twilio sandbox)
 
-### Option A: OpenWA (live line via QR Link Device)
+### Option A: WAHA (live line via QR Link Device)
 
-1. Deploy OpenWA (Render/Railway/docker)
-2. Open OpenWA dashboard and link your dedicated WhatsApp line via QR
-3. Set OpenWA outbound/inbound webhook to:
+1. Deploy WAHA (Render/Railway/docker)
+2. Open WAHA dashboard and link your dedicated WhatsApp line via QR
+3. Set WAHA outbound/inbound webhook to:
    - `https://<render-domain>/webhooks/whatsapp/inbound`
 4. In app env set:
-   - `WHATSAPP_GATEWAY_PROVIDER=OPENWA`
-   - `WHATSAPP_GATEWAY_API_KEY=<your_openwa_key>`
-   - `OPENWA_BASE_URL`, `OPENWA_SEND_PATH`
+   - `WHATSAPP_GATEWAY_PROVIDER=WAHA`
+   - `WHATSAPP_GATEWAY_API_KEY=<your_waha_key>`
+   - `WAHA_BASE_URL`, `WAHA_SESSION_NAME`, `WAHA_SEND_PATH`
 
 ### Option B: Twilio Sandbox (testing)
 
@@ -205,7 +205,7 @@ Expected outcome:
 ## 7) Free alternatives
 
 - WhatsApp provider:
-  - OpenWA (live QR-linked line, no Meta document gate)
+  - WAHA (live QR-linked line, no Meta document gate)
   - Twilio Sandbox (easy/faster start)
   - Africa's Talking (local-market friendly, can switch later)
 - Hosting:

@@ -2,9 +2,7 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-const whatsappProvider = (
-  process.env.WHATSAPP_GATEWAY_PROVIDER || "OPENWA"
-).toUpperCase();
+const whatsappProvider = (process.env.WHATSAPP_GATEWAY_PROVIDER || "WAHA").toUpperCase();
 
 const baseRequiredKeys = [
   "NODE_ENV",
@@ -42,12 +40,6 @@ const twilioRequiredKeys = [
   "TWILIO_WHATSAPP_NUMBER",
 ];
 
-const openwaRequiredKeys = [
-  "WHATSAPP_GATEWAY_API_KEY",
-  "OPENWA_BASE_URL",
-  "OPENWA_SEND_PATH",
-];
-
 const wahaRequiredKeys = [
   "WHATSAPP_GATEWAY_API_KEY",
   "WAHA_BASE_URL",
@@ -56,11 +48,7 @@ const wahaRequiredKeys = [
 
 const requiredKeys = [
   ...baseRequiredKeys,
-  ...(whatsappProvider === "OPENWA"
-    ? openwaRequiredKeys
-    : whatsappProvider === "WAHA"
-      ? wahaRequiredKeys
-      : twilioRequiredKeys),
+  ...(whatsappProvider === "WAHA" ? wahaRequiredKeys : twilioRequiredKeys),
 ];
 
 const missingKeys = requiredKeys.filter((key) => !process.env[key]);
@@ -83,11 +71,6 @@ module.exports = {
   whatsappGateway: {
     provider: whatsappProvider,
     apiKey: process.env.WHATSAPP_GATEWAY_API_KEY || "",
-    openwaBaseUrl: process.env.OPENWA_BASE_URL || "",
-    openwaSendPath: process.env.OPENWA_SEND_PATH || "/sendText",
-    openwaApiKeyHeader: process.env.OPENWA_API_KEY_HEADER || "X-Api-Key",
-    openwaSendMode: (process.env.OPENWA_SEND_MODE || "DIRECT").toUpperCase(),
-    openwaWebhookSecret: process.env.OPENWA_WEBHOOK_SECRET || "",
     wahaBaseUrl: process.env.WAHA_BASE_URL || "",
     wahaSessionName: process.env.WAHA_SESSION_NAME || "default",
     wahaSendPath: process.env.WAHA_SEND_PATH || "/api/sendText",
