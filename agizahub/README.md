@@ -223,6 +223,9 @@ Supplier catalog intake:
 - supplier onboarding now includes business type choice:
   - `WHOLESALE`, `RETAILER`, `RESTAURANT`, `GENERAL_SERVICES`
 - supplier must accept merchant agreement by replying `I AGREE` before catalog activation
+- for each new buyer order, supplier is immediately notified and must choose logistics mode:
+  - `1` own transport (no driver broadcast, no logistics premium cut)
+  - `2` AgizaHub matching (bot asks vehicle `1/2/3/4` then broadcasts only after selection)
 - catalog submission supports:
   - quick line: `Item Name, 1200`
   - multi-line menu/list text (AI parser converts to structured entries)
@@ -233,6 +236,7 @@ AI prompts added in code:
   - `ESCROW_ENGINE_SYSTEM_PROMPT`
   - `MERCHANT_CATALOG_SYSTEM_PROMPT`
   - `MERCHANT_AGREEMENT_COMPLIANCE_PROMPT`
+  - `ORDER_ROUTING_LOGISTICS_PROMPT`
 
 ---
 

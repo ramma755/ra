@@ -94,6 +94,28 @@ const supplierBusinessTypeMenu = () =>
     "4 - GENERAL_SERVICES",
   ].join("\n");
 
+const sellerLogisticsChoiceMenu = () =>
+  [
+    "LOGISTICS SELECTION",
+    "How will this order be delivered to the customer?",
+    "",
+    "Reply with 1 or 2:",
+    "1 - I am using my own business transport/delivery means.",
+    "2 - I need AgizaHub to match me with an on-demand transporter.",
+  ].join("\n");
+
+const sellerVehicleSelectionMenu = () =>
+  [
+    "SELECT VEHICLE TYPE",
+    "What type of vehicle do you need for this delivery?",
+    "",
+    "Reply with 1, 2, 3, or 4:",
+    "1 - Rider / Motorbike (small packages)",
+    "2 - TukTuk (medium store supplies)",
+    "3 - Pickup Truck (bulk goods up to 1 ton)",
+    "4 - Lorry / Truck (heavy commercial distribution)",
+  ].join("\n");
+
 const merchantAgreementMessage = () => {
   const lowPercent = Number(env.businessRules.lowValueCommissionPercent || 2);
   const highPercent = Number(env.businessRules.highValueCommissionPercent || 5);
@@ -199,6 +221,12 @@ const normalizeSupplierBusinessType = (value) => {
   return "WHOLESALE";
 };
 
+const maskBuyerPhone = (phone) => {
+  const msisdn = normalizeMsisdn(phone || "");
+  if (msisdn.length < 6) return msisdn;
+  return `${msisdn.slice(0, msisdn.length - 2)}XX`;
+};
+
 const generateEscrowToken = async () => {
   const otp = `AGZ-${crypto.randomInt(0, 1000000).toString().padStart(6, "0")}`;
   const otpHash = await bcrypt.hash(otp, 10);
@@ -280,6 +308,14 @@ const parseVehicleType = (choice) => {
   if (choice === "1") return "MOTORBIKE";
   if (choice === "2") return "TUKTUK_PICKUP";
   if (choice === "3") return "CANTER_TRUCK";
+  return null;
+};
+
+const parseSellerVehicleChoice = (choice) => {
+  if (choice === "1") return { vehicleType: "MOTORBIKE", label: "Rider / Motorbike" };
+  if (choice === "2") return { vehicleType: "TUKTUK_PICKUP", label: "TukTuk" };
+  if (choice === "3") return { vehicleType: "TUKTUK_PICKUP", label: "Pickup Truck" };
+  if (choice === "4") return { vehicleType: "CANTER_TRUCK", label: "Lorry / Truck" };
   return null;
 };
 
@@ -515,6 +551,65 @@ const formatTransportOnlySummary = ({
     "--------------------------",
     "Reply 1 to confirm and trigger STK push.",
   ].join("\n");
+
+const formatSellerOrderAlert = ({ payload }) =>
+  [
+    "NEW ORDER RECEIVED!",
+    "",
+    `Order ID: #${payload.order.id.slice(0, 8)}`,
+    `Customer Phone: ${maskBuyerPhone(payload.order.buyer_phone)}`,
+    "",
+    "Items Ordered:",
+    `${payload.quantity || 0}x ${payload.catalogItem.commodity_name} (KSh ${Number(payload.itemSubtotal).toLocaleString()})`,
+    "",
+    `Total Value: KSh ${Number(payload.order.total_amount_kes).toLocaleString()} (Escrow pending payment)`,
+  ].join("\n");
+
+const safeNotifyWhatsappPhone = async ({ toPhone, message }) => {
+  if (env.whatsappGateway.provider !== "WAHA") {
+    return false;
+  }
+  if (!toPhone || !message) return false;
+  try {
+    await sendGatewayReply({
+      provider: "WAHA",
+      toPhone,
+      message,
+    });
+    return true;
+  } catch (error) {
+    logger.warn("Failed proactive WAHA message", {
+      toPhone,
+      message: error.message,
+    });
+    return false;
+  }
+};
+
+const notifySellerForLogisticsDecision = async ({ payload }) => {
+  const sellerPhone = payload?.seller?.phone_number || "";
+  if (!sellerPhone) return;
+  await safeNotifyWhatsappPhone({
+    toPhone: sellerPhone,
+    message: formatSellerOrderAlert({ payload }),
+  });
+  await safeNotifyWhatsappPhone({
+    toPhone: sellerPhone,
+    message: sellerLogisticsChoiceMenu(),
+  });
+};
+
+const notifyBuyerCheckoutReady = async ({ order, modeLabel }) => {
+  if (!order?.buyer_phone) return;
+  await safeNotifyWhatsappPhone({
+    toPhone: order.buyer_phone,
+    message: [
+      `Order #${order.id.slice(0, 8)} logistics confirmed: ${modeLabel}`,
+      `Total amount: KSh ${Number(order.total_amount_kes).toLocaleString()}`,
+      "Reply 1 to confirm checkout and trigger STK Push.",
+    ].join("\n"),
+  });
+};
 
 const listOpenTransportJobsForDriver = async ({ driverMaskedId }) => {
   const jobs = await listQueuedJobsForDriver({ driverMaskedId });
@@ -888,6 +983,217 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
   return "Transport flow unknown state. Type Transport to restart.";
 };
 
+const processSupplierLogisticsStep = async ({ user, rawMessage }) => {
+  const trimmed = rawMessage.trim();
+  const orderId = user.pending_order_id;
+  if (!orderId) {
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'COMPLETED',
+            pending_transport_payload = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+    return "No pending order found. Type 'buy' to continue.";
+  }
+
+  if (user.current_step === "AWAITING_SUPPLIER_LOGISTICS_CHOICE") {
+    if (trimmed === "1") {
+      const result = await transaction(async (client) => {
+        const orderResult = await client.query(
+          `
+            SELECT *
+            FROM orders
+            WHERE id = $1
+              AND supplier_masked_id = $2
+            FOR UPDATE
+          `,
+          [orderId, user.masked_id]
+        );
+        if (orderResult.rowCount === 0) {
+          throw new Error("Pending supplier order not found");
+        }
+        const order = orderResult.rows[0];
+        if (order.payment_status !== "PENDING_PAYMENT") {
+          throw new Error("Logistics mode can only be changed before payment prompt.");
+        }
+
+        const logisticsPremiumKes = Number(order.logistics_premium_kes || 0);
+        const updatedPlatformFeeKes = Number(
+          (Number(order.platform_fee_kes || 0) - logisticsPremiumKes).toFixed(2)
+        );
+        const updatedTotalKes = Number(
+          (Number(order.total_amount_kes || 0) - logisticsPremiumKes).toFixed(2)
+        );
+        const updatedVendorAmountKes = Number(
+          (Number(order.vendor_amount_kes || 0) + Number(order.driver_amount_kes || 0)).toFixed(2)
+        );
+        const incomingGatewayFeeKes = computeIncomingGatewayFeeKes(updatedTotalKes);
+
+        const updatedOrderResult = await client.query(
+          `
+            UPDATE orders
+            SET vendor_amount_kes = $2,
+                driver_amount_kes = 0,
+                delivery_fee_kes = raw_transport_fee_kes,
+                platform_fee_kes = $3,
+                total_amount_kes = $4,
+                incoming_gateway_fee_kes = $5,
+                logistics_premium_percent = 0,
+                logistics_premium_kes = 0,
+                requested_vehicle_type = NULL,
+                transporter_masked_id = NULL,
+                transporter_assigned_at = NULL,
+                seller_logistics_mode = 'SELLER_OWN_TRANSPORT',
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+          `,
+          [
+            order.id,
+            updatedVendorAmountKes,
+            updatedPlatformFeeKes,
+            updatedTotalKes,
+            incomingGatewayFeeKes,
+          ]
+        );
+
+        await client.query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_order_id = NULL,
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+
+        return updatedOrderResult.rows[0];
+      });
+
+      await notifyBuyerCheckoutReady({
+        order: result,
+        modeLabel: "Seller own delivery",
+      });
+      return "Own transport selected. Driver network will NOT be notified. Buyer has been prompted to confirm payment.";
+    }
+
+    if (trimmed === "2") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_SUPPLIER_VEHICLE_SELECTION',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return sellerVehicleSelectionMenu();
+    }
+    return sellerLogisticsChoiceMenu();
+  }
+
+  if (user.current_step === "AWAITING_SUPPLIER_VEHICLE_SELECTION") {
+    const selected = parseSellerVehicleChoice(trimmed);
+    if (!selected) {
+      return sellerVehicleSelectionMenu();
+    }
+
+    const updatePayload = await transaction(async (client) => {
+      const orderResult = await client.query(
+        `
+          SELECT *
+          FROM orders
+          WHERE id = $1
+            AND supplier_masked_id = $2
+          FOR UPDATE
+        `,
+        [orderId, user.masked_id]
+      );
+      if (orderResult.rowCount === 0) {
+        throw new Error("Pending supplier order not found");
+      }
+      const order = orderResult.rows[0];
+      if (order.payment_status !== "PENDING_PAYMENT") {
+        throw new Error("Vehicle can only be selected before payment prompt.");
+      }
+
+      const updated = await client.query(
+        `
+          UPDATE orders
+          SET seller_logistics_mode = 'AGIZAHUB_MATCHING',
+              requested_vehicle_type = $2,
+              transporter_masked_id = NULL,
+              transporter_assigned_at = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [order.id, selected.vehicleType]
+      );
+
+      await client.query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              pending_order_id = NULL,
+              pending_transport_payload = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+
+      return updated.rows[0];
+    });
+
+    const broadcastSummary = await enqueueTransportJobBroadcasts({
+      orderId: updatePayload.id,
+      requestedVehicleType: selected.vehicleType,
+      pickupLocationLabel: updatePayload.pickup_location_label || "supplier-hub",
+      dropoffLocationLabel: updatePayload.delivery_location || "buyer-destination",
+    });
+
+    if (broadcastSummary.queuedDrivers === 0) {
+      await query(
+        `
+          UPDATE orders
+          SET seller_logistics_mode = 'PENDING_SELLER_DECISION',
+              requested_vehicle_type = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [updatePayload.id]
+      );
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_SUPPLIER_LOGISTICS_CHOICE',
+              pending_order_id = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, updatePayload.id]
+      );
+      return "No matching transporters found right now for that vehicle type. Reply 1 to use own transport or 2 to retry matching.";
+    }
+
+    await notifyBuyerCheckoutReady({
+      order: updatePayload,
+      modeLabel: `AgizaHub matched transport (${selected.label})`,
+    });
+
+    return `Vehicle selected: ${selected.label}. Broadcast sent to ${broadcastSummary.queuedDrivers} matching transporters.`;
+  }
+
+  return "Logistics step reset. Reply with 1 (own transport) or 2 (need AgizaHub transporter).";
+};
+
 const createOrderFromCatalogRequest = async ({
   buyer,
   senderPhone,
@@ -930,9 +1236,6 @@ const createOrderFromCatalogRequest = async ({
       throw new Error("Supplier has no active catalog item");
     }
     const catalogItem = itemResult.rows[0];
-
-    const transporterResult = await resolvePlatformTransporter(client);
-    const transporter = transporterResult.rows[0] || null;
 
     const itemSubtotal = Number(quantity) * Number(catalogItem.price_per_unit);
 
@@ -992,6 +1295,7 @@ const createOrderFromCatalogRequest = async ({
           buyer_masked_id,
           supplier_masked_id,
           transporter_masked_id,
+          seller_logistics_mode,
           commission_percent,
           logistics_premium_percent,
           matching_commission_kes,
@@ -1013,8 +1317,8 @@ const createOrderFromCatalogRequest = async ({
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'SUPPLY',$27,$28,
-          CASE WHEN $16 IS NULL THEN NULL ELSE NOW() END
+          $14,$15,$16,NULL,'PENDING_SELLER_DECISION',$17,$18,$19,$20,$21,$22,$23,$24,$25,'SUPPLY',NULL,$26,
+          NULL
         )
         RETURNING *
       `,
@@ -1040,7 +1344,6 @@ const createOrderFromCatalogRequest = async ({
         otpHash,
         buyer.masked_id,
         seller.masked_id,
-        transporter?.masked_id || null,
         matchingPercent,
         transport.logisticsPremiumPercent,
         matchingCommission,
@@ -1051,7 +1354,6 @@ const createOrderFromCatalogRequest = async ({
         transport.extraDistanceFeeKes,
         transport.rawTransportFeeKes,
         JSON.stringify(transport),
-        "TUKTUK_PICKUP",
         catalogItem.location_label,
       ]
     );
@@ -1068,6 +1370,25 @@ const createOrderFromCatalogRequest = async ({
       [buyer.id, orderInsert.rows[0].id]
     );
 
+    await client.query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SUPPLIER_LOGISTICS_CHOICE',
+            pending_order_id = $2,
+            pending_transport_payload = $3,
+            updated_at = NOW()
+        WHERE masked_id = $1
+      `,
+      [
+        seller.masked_id,
+        orderInsert.rows[0].id,
+        JSON.stringify({
+          orderId: orderInsert.rows[0].id,
+          buyerMaskedId: buyer.masked_id,
+        }),
+      ]
+    );
+
     return {
       order: orderInsert.rows[0],
       seller,
@@ -1076,6 +1397,7 @@ const createOrderFromCatalogRequest = async ({
       transport,
       routeLabel,
       itemSubtotal,
+      quantity,
       otp,
     };
   });
@@ -1100,6 +1422,13 @@ const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
       throw new Error("Pending order not found");
     }
     const order = orderResult.rows[0];
+    if (
+      order.order_type === "SUPPLY" &&
+      (order.seller_logistics_mode || "PENDING_SELLER_DECISION") ===
+        "PENDING_SELLER_DECISION"
+    ) {
+      throw new Error("Seller must confirm logistics mode before checkout.");
+    }
 
     const existingTxn = await client.query(
       `
@@ -1811,6 +2140,33 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           message: "Reply 1 to confirm checkout and trigger STK Push.",
         });
       }
+      if (user.pending_order_id) {
+        const pendingOrder = await query(
+          `
+            SELECT order_type, seller_logistics_mode
+            FROM orders
+            WHERE id = $1
+              AND buyer_masked_id = $2
+            LIMIT 1
+          `,
+          [user.pending_order_id, user.masked_id]
+        );
+        const order = pendingOrder.rows[0];
+        if (
+          order &&
+          order.order_type === "SUPPLY" &&
+          (order.seller_logistics_mode || "PENDING_SELLER_DECISION") ===
+            "PENDING_SELLER_DECISION"
+        ) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message:
+              "Seller has not selected logistics yet. We will notify you once they choose own delivery or AgizaHub transporter.",
+          });
+        }
+      }
       const confirmed = await confirmPendingOrderPayment({ user, senderPhone });
       return respondToUser({
         res,
@@ -1832,6 +2188,22 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         user,
         rawMessage,
         senderPhone,
+      });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: response,
+      });
+    }
+
+    if (
+      user.current_step === "AWAITING_SUPPLIER_LOGISTICS_CHOICE" ||
+      user.current_step === "AWAITING_SUPPLIER_VEHICLE_SELECTION"
+    ) {
+      const response = await processSupplierLogisticsStep({
+        user,
+        rawMessage,
       });
       return respondToUser({
         res,
@@ -1950,24 +2322,14 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           sellerMaskedId: buyMatch[1],
           quantity: Number(buyMatch[2]),
         });
+        await notifySellerForLogisticsDecision({ payload });
 
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: formatCheckoutSummary({
-            quantity: buyMatch[2],
-            commodityName: payload.catalogItem.commodity_name,
-            unitMeasure: payload.catalogItem.unit_measure,
-            unitPrice: payload.catalogItem.price_per_unit,
-            itemSubtotal: payload.itemSubtotal,
-            supplierHubLabel: payload.catalogItem.location_label,
-            buyerDestinationLabel:
-              payload.buyer.company_name || `Buyer #${payload.buyer.masked_id} shop`,
-            routeLabel: payload.routeLabel,
-            transport: payload.transport,
-            totalAmount: payload.order.total_amount_kes,
-          }),
+          message:
+            "Order submitted to seller successfully. Waiting seller logistics choice (own delivery or AgizaHub transporter). You will receive checkout confirmation once seller selects.",
         });
       }
 

@@ -146,7 +146,7 @@ const listQueuedJobsForDriver = async ({ driverMaskedId }) => {
     `
       SELECT
         b.order_id AS id,
-        o.transport_job_category,
+        COALESCE(o.transport_job_category, 'SUPPLY_DELIVERY') AS transport_job_category,
         o.pickup_location_label,
         o.delivery_location,
         o.requested_vehicle_type,
@@ -158,8 +158,14 @@ const listQueuedJobsForDriver = async ({ driverMaskedId }) => {
       JOIN orders o ON o.id = b.order_id
       WHERE b.driver_masked_id = $1
         AND b.status IN ('PENDING', 'SENT')
-        AND o.order_type = 'TRANSPORT_ONLY'
         AND o.transporter_masked_id IS NULL
+        AND (
+          o.order_type = 'TRANSPORT_ONLY'
+          OR (
+            o.order_type = 'SUPPLY'
+            AND COALESCE(o.seller_logistics_mode, 'PENDING_SELLER_DECISION') = 'AGIZAHUB_MATCHING'
+          )
+        )
         AND o.payment_status IN ('PENDING_PAYMENT', 'PAID_HELD')
       ORDER BY b.created_at DESC
       LIMIT 10
@@ -194,8 +200,14 @@ const claimBroadcastJob = async ({ orderId, driverMaskedId }) => {
             transporter_assigned_at = NOW(),
             updated_at = NOW()
         WHERE id = $1
-          AND order_type = 'TRANSPORT_ONLY'
           AND transporter_masked_id IS NULL
+          AND (
+            order_type = 'TRANSPORT_ONLY'
+            OR (
+              order_type = 'SUPPLY'
+              AND COALESCE(seller_logistics_mode, 'PENDING_SELLER_DECISION') = 'AGIZAHUB_MATCHING'
+            )
+          )
         RETURNING id, pickup_location_label, delivery_location, requested_vehicle_type
       `,
       [orderId, driverMaskedId]
