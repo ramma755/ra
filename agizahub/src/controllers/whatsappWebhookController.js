@@ -1,7 +1,11 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const { query, transaction } = require("../config/db");
 const env = require("../config/env");
-const { parseMarketplaceMessage } = require("../services/aiParserService");
+const {
+  parseMarketplaceMessage,
+  parseMerchantCatalogMessage,
+} = require("../services/aiParserService");
 const { initiateStkPush, normalizeMsisdn } = require("../services/darajaService");
 const {
   roleFromChoice,
@@ -77,6 +81,15 @@ const paymentModeMenu = () =>
     "3 - Business Paybill",
   ].join("\n");
 
+const supplierBusinessTypeMenu = () =>
+  [
+    "Select your business catalog type:",
+    "1 - WHOLESALE",
+    "2 - RETAILER",
+    "3 - RESTAURANT",
+    "4 - GENERAL_SERVICES",
+  ].join("\n");
+
 const transportCategoryMenu = () =>
   [
     "Need to move goods? Let's find you a secure transporter.",
@@ -117,6 +130,96 @@ const parseCatalogLine = (rawMessage) => {
   const price = Number(chunks[1].replace(/[^\d.]/g, "").trim());
   if (!commodity || Number.isNaN(price) || price <= 0) return null;
   return { commodity, price };
+};
+
+const parseSupplierBusinessTypeChoice = (choice) => {
+  if (choice === "1") return "WHOLESALE";
+  if (choice === "2") return "RETAILER";
+  if (choice === "3") return "RESTAURANT";
+  if (choice === "4") return "GENERAL_SERVICES";
+  return null;
+};
+
+const normalizeSupplierBusinessType = (value) => {
+  const upper = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (upper === "GENERAL") return "GENERAL_SERVICES";
+  if (["WHOLESALE", "RETAILER", "RESTAURANT", "GENERAL_SERVICES"].includes(upper)) {
+    return upper;
+  }
+  return "WHOLESALE";
+};
+
+const generateEscrowToken = async () => {
+  const otp = `AGZ-${crypto.randomInt(0, 1000000).toString().padStart(6, "0")}`;
+  const otpHash = await bcrypt.hash(otp, 10);
+  return { otp, otpHash };
+};
+
+const parseAndNormalizeMerchantCatalog = async ({
+  rawMessage,
+  merchantPhone,
+  businessTypeHint,
+}) => {
+  const cleanedInput = String(rawMessage || "").replace(/^catalog\s+/i, "").trim();
+  const simple = parseCatalogLine(cleanedInput);
+  if (simple) {
+    return {
+      businessType: normalizeSupplierBusinessType(businessTypeHint),
+      items: [
+        {
+          commodity: simple.commodity.slice(0, 50),
+          pricePerUnitKes: Math.round(simple.price),
+          metadata: {
+            source: "simple-line",
+            category: "General",
+            minimum_order_qty: 1,
+            attributes: {
+              description: "",
+              modifiers: [],
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  const parsed = await parseMerchantCatalogMessage({
+    rawMessage: cleanedInput,
+    senderPhone: merchantPhone,
+    businessTypeHint,
+  });
+
+  const items = Array.isArray(parsed.catalog_items)
+    ? parsed.catalog_items
+        .map((item) => {
+          const price = Number(item.price_per_unit_kes);
+          const name = String(item.name || "").trim();
+          if (!name || !Number.isFinite(price) || price <= 0) return null;
+          return {
+            commodity: name.slice(0, 50),
+            pricePerUnitKes: Math.round(price),
+            metadata: {
+              source: "ai-catalog-parser",
+              category: String(item.category || "General").slice(0, 80),
+              minimum_order_qty: Number(item.minimum_order_qty || 1),
+              attributes: {
+                description: String(item.attributes?.description || "").slice(0, 240),
+                modifiers: Array.isArray(item.attributes?.modifiers)
+                  ? item.attributes.modifiers.slice(0, 20)
+                  : [],
+              },
+            },
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return {
+    businessType: normalizeSupplierBusinessType(parsed.business_type || businessTypeHint),
+    items,
+  };
 };
 
 const parseTransportCategory = (choice) => {
@@ -223,6 +326,7 @@ const listCatalogOffersMessage = async () => {
         c.price_per_unit,
         c.unit_measure,
         c.location_label,
+        c.business_type,
         u.masked_id,
         u.company_name
       FROM catalog_items c
@@ -244,6 +348,7 @@ const listCatalogOffersMessage = async () => {
       "",
       `${item.commodity_name}`,
       `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id})`,
+      `Business Type: ${item.business_type || "WHOLESALE"}`,
       `Price: KSh ${Number(item.price_per_unit).toLocaleString()} per ${item.unit_measure}`,
       `Location: ${item.location_label}`,
       `To purchase: Buy ${item.masked_id} 10`
@@ -435,8 +540,7 @@ const createTransportOnlyOrder = async ({
     const platformFeeKes = Number(
       (requesterCommissionKes + transporterCommissionKes).toFixed(2)
     );
-    const otp = String(Math.floor(1000 + Math.random() * 9000));
-    const otpHash = await bcrypt.hash(otp, 10);
+    const { otp, otpHash } = await generateEscrowToken();
 
     const orderInsert = await client.query(
       `
@@ -802,8 +906,7 @@ const createOrderFromCatalogRequest = async ({
     const totalAmount = Number(
       (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
     );
-    const otp = String(Math.floor(1000 + Math.random() * 9000));
-    const otpHash = await bcrypt.hash(otp, 10);
+    const { otp, otpHash } = await generateEscrowToken();
 
     const orderInsert = await client.query(
       `
@@ -1072,8 +1175,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
     const totalAmount = Number(
       (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
     );
-    const otp = String(Math.floor(1000 + Math.random() * 9000));
-    const otpHash = await bcrypt.hash(otp, 10);
+    const { otp, otpHash } = await generateEscrowToken();
 
     const orderResult = await client.query(
       `
@@ -1164,7 +1266,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
 
 const nextStepAfterPaymentSelection = (userType) => {
   if (userType === "BUYER") return "AWAITING_BUYER_LOCATION";
-  if (userType === "SUPPLIER") return "AWAITING_SUPPLIER_HUB";
+  if (userType === "SUPPLIER") return "AWAITING_SUPPLIER_BUSINESS_TYPE";
   if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK") {
     return "AWAITING_TRANSPORTER_CORRIDOR";
   }
@@ -1246,6 +1348,9 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         if (nextStep === "AWAITING_BUYER_LOCATION") {
           return "Send your delivery location coordinates as: latitude,longitude (example: -1.286389,36.817223)";
         }
+        if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
+          return supplierBusinessTypeMenu();
+        }
         if (nextStep === "AWAITING_SUPPLIER_HUB") {
           return "Send your supplier hub coordinates as: latitude,longitude (example: -0.727322,36.429387)";
         }
@@ -1305,6 +1410,9 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
       if (nextStep === "AWAITING_BUYER_LOCATION") {
         return "Now send buyer delivery coordinates: latitude,longitude";
       }
+      if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
+        return supplierBusinessTypeMenu();
+      }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
         return "Now send supplier hub coordinates: latitude,longitude";
       }
@@ -1347,6 +1455,9 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
       if (nextStep === "AWAITING_BUYER_LOCATION") {
         return "Now send buyer delivery coordinates: latitude,longitude";
       }
+      if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
+        return supplierBusinessTypeMenu();
+      }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
         return "Now send supplier hub coordinates: latitude,longitude";
       }
@@ -1381,6 +1492,24 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
       )}. Type 'buy' to view offers.`;
     }
 
+    if (user.current_step === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
+      const businessType = parseSupplierBusinessTypeChoice(trimmed);
+      if (!businessType) {
+        return `Invalid option.\n\n${supplierBusinessTypeMenu()}`;
+      }
+      await client.query(
+        `
+          UPDATE platform_users
+          SET business_type = $2,
+              current_step = 'AWAITING_SUPPLIER_HUB',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, businessType]
+      );
+      return "Business type saved. Now send supplier hub coordinates: latitude,longitude";
+    }
+
     if (user.current_step === "AWAITING_SUPPLIER_HUB") {
       const coords = parseCoordinates(trimmed);
       if (!coords) {
@@ -1401,7 +1530,8 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         `Hub location saved. Seller ID ${formatPublicMaskedId(
           user.user_type,
           user.masked_id
-        )}.\n` + "Now add your first item: Commodity, Price per bag"
+        )}. Business type: ${normalizeSupplierBusinessType(user.business_type)}.\n` +
+        "Now add your first catalog line (example: Rice, 4200) or full menu text."
       );
     }
 
@@ -1427,17 +1557,35 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
     }
 
     if (user.current_step === "AWAITING_CATALOG") {
-      const parsedCatalog = parseCatalogLine(trimmed);
-      if (!parsedCatalog) {
-        return "Invalid format. Use: Commodity, Price per bag. Example: Onions, 1800";
+      const parsedCatalog = await parseAndNormalizeMerchantCatalog({
+        rawMessage: trimmed,
+        merchantPhone: user.phone_number,
+        businessTypeHint: user.business_type,
+      });
+      if (!parsedCatalog.items.length) {
+        return "Invalid catalog format. Use: Commodity, Price (example: Onions, 1800) or paste menu lines for AI parsing.";
       }
-      await client.query(
-        `
-          INSERT INTO catalog_items (seller_masked_id, commodity_name, price_per_unit)
-          VALUES ($1, $2, $3)
-        `,
-        [user.masked_id, parsedCatalog.commodity, parsedCatalog.price]
-      );
+      for (const item of parsedCatalog.items) {
+        await client.query(
+          `
+            INSERT INTO catalog_items (
+              seller_masked_id,
+              commodity_name,
+              price_per_unit,
+              business_type,
+              catalog_metadata
+            )
+            VALUES ($1, $2, $3, $4, $5)
+          `,
+          [
+            user.masked_id,
+            item.commodity,
+            item.pricePerUnitKes,
+            parsedCatalog.businessType,
+            JSON.stringify(item.metadata),
+          ]
+        );
+      }
       await client.query(
         `
           UPDATE platform_users
@@ -1447,7 +1595,7 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         `,
         [user.id]
       );
-      return `Catalog item saved for Seller #${user.masked_id}. Buyers only see masked IDs.`;
+      return `${parsedCatalog.items.length} catalog item(s) saved for Seller #${user.masked_id} (${parsedCatalog.businessType}). Buyers only see masked IDs.`;
     }
 
     await client.query(
@@ -1595,21 +1743,42 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (user.user_type === "SUPPLIER" && rawMessage.includes(",")) {
-      const parsedCatalog = parseCatalogLine(rawMessage);
-      if (parsedCatalog) {
-        await query(
-          `
-            INSERT INTO catalog_items (seller_masked_id, commodity_name, price_per_unit)
-            VALUES ($1, $2, $3)
-          `,
-          [user.masked_id, parsedCatalog.commodity, parsedCatalog.price]
-        );
+    if (
+      user.user_type === "SUPPLIER" &&
+      (rawMessage.includes(",") || /^catalog\s+/i.test(rawMessage) || rawMessage.includes("\n"))
+    ) {
+      const parsedCatalog = await parseAndNormalizeMerchantCatalog({
+        rawMessage,
+        merchantPhone: user.phone_number,
+        businessTypeHint: user.business_type,
+      });
+      if (parsedCatalog.items.length > 0) {
+        for (const item of parsedCatalog.items) {
+          await query(
+            `
+              INSERT INTO catalog_items (
+                seller_masked_id,
+                commodity_name,
+                price_per_unit,
+                business_type,
+                catalog_metadata
+              )
+              VALUES ($1, $2, $3, $4, $5)
+            `,
+            [
+              user.masked_id,
+              item.commodity,
+              item.pricePerUnitKes,
+              parsedCatalog.businessType,
+              JSON.stringify(item.metadata),
+            ]
+          );
+        }
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: `Added ${parsedCatalog.commodity} at KSh ${parsedCatalog.price}.`,
+          message: `Added ${parsedCatalog.items.length} item(s) under ${parsedCatalog.businessType}.`,
         });
       }
     }
@@ -1763,7 +1932,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         res,
         provider,
         senderPhone,
-        message: `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + delivery OTP.`,
+        message: `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + customer escrow code.`,
       });
     }
 
@@ -1772,25 +1941,27 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         user.user_type === "TRANSPORTER_TRUCK") &&
       /^deliver\s+/i.test(rawMessage)
     ) {
-      const deliverMatch = rawMessage.match(/^deliver\s+([a-zA-Z0-9-]+)\s+(\d{4})$/i);
+      const deliverMatch = rawMessage.match(
+        /^deliver\s+([a-zA-Z0-9-]+)\s+((?:AGZ-\d{6})|\d{4})$/i
+      );
       if (!deliverMatch) {
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: "Use format: Deliver <OrderID> <4-digit-OTP>",
+          message: "Use format: Deliver <OrderID> <AGZ-123456>",
         });
       }
       await verifyOtpAndQueueRelease({
         orderId: normalizeOrderIdFromText(deliverMatch[1]),
-        otp: deliverMatch[2],
+        otp: deliverMatch[2].toUpperCase(),
       });
       return respondToUser({
         res,
         provider,
         senderPhone,
         message:
-          "OTP verified. Order moved to AWAITING_RELEASE and sent to admin for final approval.",
+          "Escrow code verified. Order moved to AWAITING_RELEASE and sent to admin for final approval.",
       });
     }
 
@@ -1843,7 +2014,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       senderPhone,
       message: `Order ${payload.order.id.slice(0, 8)} imepokelewa. Lipa STK KES ${
         payload.order.total_amount_kes
-      }. OTP: ${payload.otp}.`,
+      }. Escrow code: ${payload.otp}. Do NOT share until goods arrive and are verified.`,
     });
   } catch (error) {
     logger.error("WhatsApp inbound failed", { error: error.message });

@@ -4,6 +4,7 @@ Backend MVP for a WhatsApp-first broker workflow:
 
 - Receive WhatsApp messages via gateway webhook (WAHA or Twilio)
 - Run zero-friction onboarding with masked 5-digit IDs and no contact leakage
+- Let merchants classify catalogs as `WHOLESALE`, `RETAILER`, `RESTAURANT`, or `GENERAL_SERVICES`
 - Parse conversational Sheng/Swahili/English orders with OpenAI
 - Store orders in Supabase Postgres
 - Trigger M-Pesa STK push (Daraja sandbox)
@@ -19,6 +20,7 @@ Backend MVP for a WhatsApp-first broker workflow:
   - `PAYBILL -> B2B BusinessPayBill`
   - `TILL -> B2B BusinessBuyGoods`
 - Gate every delivery payout behind explicit admin release/hold action
+- Use escrow delivery confirmation token format `AGZ-XXXXXX` (hashed at rest)
 - Support refund request -> admin approve/reject pipeline
 - Reconcile callbacks and run treasury/reconciliation jobs
 
@@ -132,6 +134,11 @@ Set callback URLs to your API domain:
 - `/webhooks/mpesa/b2b/result`
 - `/webhooks/mpesa/b2b/timeout`
 
+Escrow release credentials (required):
+
+- `DARAJA_INITIATOR_NAME` (sandbox commonly `TestInitiator`)
+- `DARAJA_INITIATOR_PASSWORD` (the API user's credential/security credential)
+
 Expected state transitions:
 
 - `PENDING_PAYMENT -> PAID_HELD` (on successful STK callback)
@@ -157,6 +164,8 @@ On success:
 - admin must explicitly release funds (`Release <OrderID>`)
 - routing executes via B2C/B2B based on wallet/payment mode
 - callbacks reconcile each leg to `SUCCESS/FAILED/TIMEOUT`
+- escrow code format is `AGZ-XXXXXX` and is bcrypt-hashed before storage
+- share the code only after delivery inspection; transporter submits with `Deliver <OrderID> <AGZ-XXXXXX>`
 
 Transport charge engine for buyer checkout:
 
@@ -189,6 +198,20 @@ Transport-only mode (no supplier involved):
   - if no delivery confirmation in the window, order auto-rematches to a new eligible transporter
   - applies across order categories that have assigned marketplace transporters
   - each timeout rematch/unassign emits an admin alert template into `admin_notifications_outbox`
+
+Supplier catalog intake:
+
+- supplier onboarding now includes business type choice:
+  - `WHOLESALE`, `RETAILER`, `RESTAURANT`, `GENERAL_SERVICES`
+- catalog submission supports:
+  - quick line: `Item Name, 1200`
+  - multi-line menu/list text (AI parser converts to structured entries)
+
+AI prompts added in code:
+
+- `src/services/aiParserService.js`
+  - `ESCROW_ENGINE_SYSTEM_PROMPT`
+  - `MERCHANT_CATALOG_SYSTEM_PROMPT`
 
 ---
 
