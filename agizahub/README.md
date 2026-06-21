@@ -224,11 +224,17 @@ Supplier catalog intake:
   - `WHOLESALE`, `RETAILER`, `RESTAURANT`, `GENERAL_SERVICES`
 - supplier must accept merchant agreement by replying `I AGREE` before catalog activation
 - for each new buyer order, supplier is immediately notified and must choose logistics mode:
+  - supplier first confirms stock (`1` in stock, `2` out of stock) before any buyer payment
   - `1` own transport (no driver broadcast, no logistics premium cut)
   - `2` AgizaHub matching (bot asks vehicle `1/2/3/4` then broadcasts only after selection)
+- if seller reports out-of-stock, buyer receives alternative sellers ranked by location then price
+- buyer can search marketplace with `search <item>` and select seller row IDs (`search_select_<catalog>_<seller>`)
 - catalog submission supports:
   - quick line: `Item Name, 1200`
   - multi-line menu/list text (AI parser converts to structured entries)
+  - seller inventory commands:
+    - `Add stock 50 Sugar`
+    - `Add new item: Premium Milk 1L, Price 150, Stock 20`
 
 AI prompts added in code:
 
@@ -237,6 +243,9 @@ AI prompts added in code:
   - `MERCHANT_CATALOG_SYSTEM_PROMPT`
   - `MERCHANT_AGREEMENT_COMPLIANCE_PROMPT`
   - `ORDER_ROUTING_LOGISTICS_PROMPT`
+  - `SEARCH_AGGREGATOR_PROMPT`
+  - `AVAILABILITY_ESCROW_GATEKEEPER_PROMPT`
+  - `SELLER_INVENTORY_UPDATE_PROMPT`
 
 ---
 

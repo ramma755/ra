@@ -28,6 +28,7 @@ const {
 const {
   computeTransportBreakdown,
   resolveRouteDistance,
+  haversineDistanceKm,
 } = require("../services/logisticsPricingService");
 const {
   resolveTieredCommissionPercent,
@@ -43,12 +44,19 @@ const logger = require("../services/logger");
 const twimlResponse = (message) =>
   `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`;
 
-const respondToUser = async ({ res, provider, senderPhone, message }) => {
+const respondToUser = async ({
+  res,
+  provider,
+  senderPhone,
+  message,
+  interactiveList = null,
+}) => {
   if (provider === "WAHA") {
     await sendGatewayReply({
       provider,
       toPhone: senderPhone,
       message,
+      interactiveList,
     });
     return res.status(200).json({ ok: true, provider });
   }
@@ -114,6 +122,26 @@ const sellerVehicleSelectionMenu = () =>
     "2 - TukTuk (medium store supplies)",
     "3 - Pickup Truck (bulk goods up to 1 ton)",
     "4 - Lorry / Truck (heavy commercial distribution)",
+  ].join("\n");
+
+const sellerStockConfirmationMenu = ({ orderId }) =>
+  [
+    `Order #${String(orderId || "").slice(0, 8)} requires stock confirmation.`,
+    "Reply:",
+    "1 - In stock",
+    "2 - Out of stock",
+  ].join("\n");
+
+const buyerDepositDecisionMenu = ({ orderId, totalAmountKes }) =>
+  [
+    "PAYMENT AUTHORIZATION",
+    `Order #${String(orderId || "").slice(0, 8)} has been confirmed by seller.`,
+    `Total Due: KSh ${Number(totalAmountKes || 0).toLocaleString()}`,
+    "Status: Awaiting Escrow Deposit",
+    "",
+    "Reply:",
+    "1 - Deposit Now (trigger M-Pesa STK prompt)",
+    "2 - Cancel Order",
   ].join("\n");
 
 const merchantAgreementMessage = () => {
@@ -199,7 +227,51 @@ const parseCatalogLine = (rawMessage) => {
   const commodity = chunks[0].trim();
   const price = Number(chunks[1].replace(/[^\d.]/g, "").trim());
   if (!commodity || Number.isNaN(price) || price <= 0) return null;
-  return { commodity, price };
+  const stockChunk = chunks[2] ? Number(chunks[2].replace(/[^\d]/g, "").trim()) : null;
+  const stockQuantity = Number.isFinite(stockChunk) && stockChunk >= 0 ? stockChunk : null;
+  return { commodity, price, stockQuantity };
+};
+
+const parseAddStockCommand = (rawMessage) => {
+  const match = String(rawMessage || "")
+    .trim()
+    .match(/^add\s+stock\s+(\d+)\s+(.+)$/i);
+  if (!match) return null;
+  return {
+    quantity: Number(match[1]),
+    commodity: match[2].trim().slice(0, 50),
+  };
+};
+
+const parseInventoryNewItemCommand = (rawMessage) => {
+  const cleaned = String(rawMessage || "")
+    .trim()
+    .replace(/^add\s+new\s+item\s*:\s*/i, "")
+    .replace(/^update\s+inventory\s*:\s*/i, "")
+    .replace(/^update\s+inventory\s+/i, "");
+  if (!cleaned) return null;
+
+  const chunks = cleaned.split(",").map((c) => c.trim()).filter(Boolean);
+  const name = (chunks[0] || "").replace(/^item\s*:\s*/i, "").trim();
+  if (!name) return null;
+
+  const priceMatch =
+    cleaned.match(/price\s*[:=]?\s*(\d+(?:\.\d+)?)/i) ||
+    cleaned.match(/ksh\s*(\d+(?:\.\d+)?)/i);
+  const stockMatch = cleaned.match(/stock\s*[:=]?\s*(\d+)/i);
+  const fallbackPrice =
+    chunks.length > 1 ? Number(chunks[1].replace(/[^\d.]/g, "")) : Number.NaN;
+
+  const price = priceMatch ? Number(priceMatch[1]) : fallbackPrice;
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  const stock = stockMatch ? Number(stockMatch[1]) : 0;
+
+  return {
+    commodity: name.slice(0, 50),
+    price,
+    stockQuantity: Number.isFinite(stock) && stock >= 0 ? stock : 0,
+  };
 };
 
 const parseSupplierBusinessTypeChoice = (choice) => {
@@ -247,6 +319,8 @@ const parseAndNormalizeMerchantCatalog = async ({
         {
           commodity: simple.commodity.slice(0, 50),
           pricePerUnitKes: Math.round(simple.price),
+          stockQuantity:
+            simple.stockQuantity == null ? 100 : Number(simple.stockQuantity),
           metadata: {
             source: "simple-line",
             category: "General",
@@ -276,6 +350,7 @@ const parseAndNormalizeMerchantCatalog = async ({
           return {
             commodity: name.slice(0, 50),
             pricePerUnitKes: Math.round(price),
+            stockQuantity: 100,
             metadata: {
               source: "ai-catalog-parser",
               category: String(item.category || "General").slice(0, 80),
@@ -406,16 +481,21 @@ const listCatalogOffersMessage = async () => {
   const result = await query(
     `
       SELECT
+        c.id AS catalog_item_id,
         c.commodity_name,
         c.price_per_unit,
         c.unit_measure,
         c.location_label,
         c.business_type,
+        c.stock_quantity,
         u.masked_id,
-        u.company_name
+        u.company_name,
+        u.hub_latitude,
+        u.hub_longitude
       FROM catalog_items c
       JOIN platform_users u ON u.masked_id = c.seller_masked_id
       WHERE c.is_active = TRUE
+        AND c.stock_quantity > 0
         AND u.user_type = 'SUPPLIER'
         AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
       ORDER BY c.price_per_unit ASC, c.created_at ASC
@@ -435,12 +515,133 @@ const listCatalogOffersMessage = async () => {
       `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id})`,
       `Business Type: ${item.business_type || "WHOLESALE"}`,
       `Price: KSh ${Number(item.price_per_unit).toLocaleString()} per ${item.unit_measure}`,
+      `Stock: ${Number(item.stock_quantity || 0).toLocaleString()}`,
       `Location: ${item.location_label}`,
-      `To purchase: Buy ${item.masked_id} 10`
+      `To purchase: Buy ${item.masked_id} 10`,
+      `Or search row: search_select_${item.catalog_item_id}_${item.masked_id}`
     );
   }
   return lines.join("\n");
 };
+
+const searchCatalogRows = async ({ searchTerm, excludeSellerMaskedId = null }) => {
+  return query(
+    `
+      SELECT
+        c.id AS catalog_item_id,
+        c.seller_masked_id,
+        c.commodity_name,
+        c.price_per_unit,
+        c.unit_measure,
+        c.location_label,
+        c.business_type,
+        c.stock_quantity,
+        u.company_name,
+        u.hub_latitude,
+        u.hub_longitude
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.is_active = TRUE
+        AND c.stock_quantity > 0
+        AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
+        AND u.user_type = 'SUPPLIER'
+        AND (
+          LOWER(c.commodity_name) LIKE CONCAT('%', LOWER($1), '%')
+          OR LOWER(COALESCE(c.location_label, '')) LIKE CONCAT('%', LOWER($1), '%')
+        )
+        AND ($2::text IS NULL OR c.seller_masked_id <> $2)
+      ORDER BY c.price_per_unit ASC, c.created_at ASC
+      LIMIT 50
+    `,
+    [searchTerm, excludeSellerMaskedId]
+  );
+};
+
+const rankSearchRowsForBuyer = ({ rows, buyer }) => {
+  const buyerHasCoords =
+    buyer && buyer.delivery_latitude != null && buyer.delivery_longitude != null;
+  return [...rows]
+    .map((row) => {
+      const distanceKm =
+        buyerHasCoords && row.hub_latitude != null && row.hub_longitude != null
+          ? haversineDistanceKm({
+              fromLat: buyer.delivery_latitude,
+              fromLng: buyer.delivery_longitude,
+              toLat: row.hub_latitude,
+              toLng: row.hub_longitude,
+            })
+          : null;
+      return {
+        ...row,
+        distanceKm,
+      };
+    })
+    .sort((a, b) => {
+      const da = a.distanceKm == null ? Number.MAX_SAFE_INTEGER : Number(a.distanceKm);
+      const db = b.distanceKm == null ? Number.MAX_SAFE_INTEGER : Number(b.distanceKm);
+      if (da !== db) return da - db;
+      return Number(a.price_per_unit) - Number(b.price_per_unit);
+    });
+};
+
+const buildSearchInteractiveList = ({ searchTerm, rankedRows }) => {
+  const rows = rankedRows.slice(0, 10).map((row) => ({
+    id: `search_select_${row.catalog_item_id}_${row.seller_masked_id}`,
+    title: `${row.company_name || `Seller #${row.seller_masked_id}`} - KSh ${Number(
+      row.price_per_unit
+    ).toLocaleString()}`,
+    description: `${row.unit_measure || "unit"} | ${row.location_label || "Location"}`,
+  }));
+
+  return {
+    title: "Product Search Results",
+    body: `Found ${rankedRows.length} seller option(s) for "${searchTerm}".`,
+    buttonText: "Choose Seller",
+    sections: [
+      {
+        title: "Available Sellers",
+        rows,
+      },
+    ],
+  };
+};
+
+const buildSearchTextList = ({ searchTerm, rankedRows }) => {
+  const lines = [`Search results for "${searchTerm}" (choose one):`];
+  rankedRows.slice(0, 10).forEach((row, idx) => {
+    lines.push(
+      "",
+      `${idx + 1}. ${row.company_name || `Seller #${row.seller_masked_id}`} - KSh ${Number(
+        row.price_per_unit
+      ).toLocaleString()}`,
+      `${row.unit_measure || "unit"} | ${row.location_label || "Location"}`,
+      `ID: search_select_${row.catalog_item_id}_${row.seller_masked_id}`
+    );
+  });
+  lines.push("", "Reply with the row ID above to continue.");
+  return lines.join("\n");
+};
+
+const parseSearchSelectionId = (rawMessage) => {
+  const match = String(rawMessage || "")
+    .trim()
+    .match(/^search_select_(\d+)_([0-9]{5})$/i);
+  if (!match) return null;
+  return {
+    catalogItemId: Number(match[1]),
+    sellerMaskedId: match[2],
+  };
+};
+
+const buildSearchQuantityPrompt = ({ row }) =>
+  [
+    `Selected: ${row.commodity_name} from ${row.company_name || `Seller #${row.seller_masked_id}`}`,
+    `Price: KSh ${Number(row.price_per_unit).toLocaleString()} per ${row.unit_measure || "unit"}`,
+    `Location: ${row.location_label || "N/A"}`,
+    `In stock: ${Number(row.stock_quantity || 0).toLocaleString()}`,
+    "",
+    "Reply with quantity number to continue (or 0 to cancel).",
+  ].join("\n");
 
 const isAdminPhone = (communicationPhone, senderPhone) => {
   const configured = (env.admin.whatsappPhone || "").trim();
@@ -565,7 +766,7 @@ const formatSellerOrderAlert = ({ payload }) =>
     `Total Value: KSh ${Number(payload.order.total_amount_kes).toLocaleString()} (Escrow pending payment)`,
   ].join("\n");
 
-const safeNotifyWhatsappPhone = async ({ toPhone, message }) => {
+const safeNotifyWhatsappPhone = async ({ toPhone, message, interactiveList = null }) => {
   if (env.whatsappGateway.provider !== "WAHA") {
     return false;
   }
@@ -575,6 +776,7 @@ const safeNotifyWhatsappPhone = async ({ toPhone, message }) => {
       provider: "WAHA",
       toPhone,
       message,
+      interactiveList,
     });
     return true;
   } catch (error) {
@@ -595,7 +797,7 @@ const notifySellerForLogisticsDecision = async ({ payload }) => {
   });
   await safeNotifyWhatsappPhone({
     toPhone: sellerPhone,
-    message: sellerLogisticsChoiceMenu(),
+    message: sellerStockConfirmationMenu({ orderId: payload?.order?.id }),
   });
 };
 
@@ -605,10 +807,101 @@ const notifyBuyerCheckoutReady = async ({ order, modeLabel }) => {
     toPhone: order.buyer_phone,
     message: [
       `Order #${order.id.slice(0, 8)} logistics confirmed: ${modeLabel}`,
-      `Total amount: KSh ${Number(order.total_amount_kes).toLocaleString()}`,
-      "Reply 1 to confirm checkout and trigger STK Push.",
-    ].join("\n"),
+      buyerDepositDecisionMenu({
+        orderId: order.id,
+        totalAmountKes: order.total_amount_kes,
+      }),
+    ].join("\n\n"),
   });
+};
+
+const extractOrderCommodity = (order) => {
+  try {
+    const parsed = typeof order.parsed_payload === "string"
+      ? JSON.parse(order.parsed_payload)
+      : order.parsed_payload || {};
+    return String(parsed.commodity || "").trim();
+  } catch (_error) {
+    return "";
+  }
+};
+
+const notifyBuyerWithAlternatives = async ({ order, searchTerm, excludeSellerMaskedId }) => {
+  if (!order?.buyer_phone || !searchTerm) return { offered: 0 };
+
+  const buyerProfileResult = order.buyer_masked_id
+    ? await query(
+        `SELECT delivery_latitude, delivery_longitude FROM platform_users WHERE masked_id = $1 LIMIT 1`,
+        [order.buyer_masked_id]
+      )
+    : { rows: [] };
+  const buyerProfile = buyerProfileResult.rows[0] || null;
+
+  const rowsResult = await searchCatalogRows({
+    searchTerm,
+    excludeSellerMaskedId,
+  });
+  const ranked = rankSearchRowsForBuyer({
+    rows: rowsResult.rows,
+    buyer: buyerProfile,
+  });
+
+  if (ranked.length === 0) {
+    await safeNotifyWhatsappPhone({
+      toPhone: order.buyer_phone,
+      message:
+        "Sorry, the selected seller is out of stock and no nearby alternatives were found. Reply 2 to cancel this order.",
+    });
+    return { offered: 0 };
+  }
+
+  const interactiveList = buildSearchInteractiveList({
+    searchTerm,
+    rankedRows: ranked,
+  });
+  const textList = buildSearchTextList({
+    searchTerm,
+    rankedRows: ranked,
+  });
+
+  await safeNotifyWhatsappPhone({
+    toPhone: order.buyer_phone,
+    message:
+      `Out of stock at your selected seller. We found alternatives for "${searchTerm}".` +
+      "\nSelect one from the list, reply with row ID, reply 1 for best option, or 2 to cancel.",
+    interactiveList,
+  });
+  await safeNotifyWhatsappPhone({
+    toPhone: order.buyer_phone,
+    message: textList,
+  });
+
+  if (order.buyer_masked_id) {
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SEARCH_SELECTION',
+            pending_order_id = $2,
+            pending_transport_payload = $3,
+            updated_at = NOW()
+        WHERE masked_id = $1
+      `,
+      [
+        order.buyer_masked_id,
+        order.id,
+        JSON.stringify({
+          source: "out_of_stock_alternatives",
+          searchTerm,
+          options: ranked.slice(0, 10).map((row) => ({
+            catalogItemId: row.catalog_item_id,
+            sellerMaskedId: row.seller_masked_id,
+          })),
+        }),
+      ]
+    );
+  }
+
+  return { offered: ranked.length };
 };
 
 const listOpenTransportJobsForDriver = async ({ driverMaskedId }) => {
@@ -1098,6 +1391,153 @@ const processSupplierLogisticsStep = async ({ user, rawMessage }) => {
     return sellerLogisticsChoiceMenu();
   }
 
+  if (user.current_step === "AWAITING_SUPPLIER_STOCK_CONFIRM") {
+    if (trimmed === "1") {
+      const stockResult = await transaction(async (client) => {
+        const orderResult = await client.query(
+          `
+            SELECT *
+            FROM orders
+            WHERE id = $1
+              AND supplier_masked_id = $2
+            FOR UPDATE
+          `,
+          [orderId, user.masked_id]
+        );
+        if (orderResult.rowCount === 0) {
+          throw new Error("Pending supplier order not found");
+        }
+        const order = orderResult.rows[0];
+        let parsedPayload = {};
+        try {
+          parsedPayload = typeof order.parsed_payload === "string"
+            ? JSON.parse(order.parsed_payload)
+            : order.parsed_payload || {};
+        } catch (_error) {
+          parsedPayload = {};
+        }
+
+        const catalogItemResult = await client.query(
+          `
+            SELECT id, stock_quantity
+            FROM catalog_items
+            WHERE seller_masked_id = $1
+              AND (
+                ($2::bigint IS NOT NULL AND id = $2)
+                OR ($2::bigint IS NULL AND LOWER(commodity_name) = LOWER($3))
+              )
+            LIMIT 1
+          `,
+          [user.masked_id, parsedPayload.catalogItemId || null, parsedPayload.commodity || ""]
+        );
+        if (catalogItemResult.rowCount === 0) {
+          throw new Error("Catalog item not found for stock confirmation");
+        }
+
+        const availableStock = Number(catalogItemResult.rows[0].stock_quantity || 0);
+        const requestedQty = Number(order.quantity || 0);
+        if (availableStock < requestedQty) {
+          await client.query(
+            `
+              UPDATE orders
+              SET seller_stock_status = 'OUT_OF_STOCK',
+                  payment_status = 'PAYMENT_FAILED',
+                  settlement_status = 'ON_HOLD',
+                  distribution_status = 'ON_HOLD',
+                  updated_at = NOW()
+              WHERE id = $1
+            `,
+            [order.id]
+          );
+          await client.query(
+            `
+              UPDATE platform_users
+              SET current_step = 'COMPLETED',
+                  pending_order_id = NULL,
+                  pending_transport_payload = NULL,
+                  updated_at = NOW()
+              WHERE id = $1
+            `,
+            [user.id]
+          );
+          return { forcedOutOfStock: true, order };
+        }
+
+        await client.query(
+          `
+            UPDATE orders
+            SET seller_stock_status = 'IN_STOCK',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [order.id]
+        );
+        await client.query(
+          `
+            UPDATE platform_users
+            SET current_step = 'AWAITING_SUPPLIER_LOGISTICS_CHOICE',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return { forcedOutOfStock: false, order };
+      });
+
+      if (stockResult.forcedOutOfStock) {
+        const commodity = extractOrderCommodity(stockResult.order);
+        await notifyBuyerWithAlternatives({
+          order: stockResult.order,
+          searchTerm: commodity,
+          excludeSellerMaskedId: stockResult.order.supplier_masked_id,
+        });
+        return "Stock level is insufficient for requested quantity. Buyer has been redirected to alternatives.";
+      }
+
+      return sellerLogisticsChoiceMenu();
+    }
+
+    if (trimmed === "2") {
+      const orderResult = await query(
+        `
+          UPDATE orders
+          SET seller_stock_status = 'OUT_OF_STOCK',
+              payment_status = 'PAYMENT_FAILED',
+              settlement_status = 'ON_HOLD',
+              distribution_status = 'ON_HOLD',
+              updated_at = NOW()
+          WHERE id = $1
+            AND supplier_masked_id = $2
+          RETURNING *
+        `,
+        [orderId, user.masked_id]
+      );
+      if (orderResult.rowCount > 0) {
+        const order = orderResult.rows[0];
+        const commodity = extractOrderCommodity(order);
+        await notifyBuyerWithAlternatives({
+          order,
+          searchTerm: commodity,
+          excludeSellerMaskedId: order.supplier_masked_id,
+        });
+      }
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              pending_order_id = NULL,
+              pending_transport_payload = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return "Out-of-stock status recorded. Buyer has been notified with alternative seller options.";
+    }
+
+    return sellerStockConfirmationMenu({ orderId });
+  }
+
   if (user.current_step === "AWAITING_SUPPLIER_VEHICLE_SELECTION") {
     const selected = parseSellerVehicleChoice(trimmed);
     if (!selected) {
@@ -1200,6 +1640,7 @@ const createOrderFromCatalogRequest = async ({
   rawMessage,
   sellerMaskedId,
   quantity,
+  catalogItemId = null,
 }) =>
   transaction(async (client) => {
     const seller = await resolveUserByMaskedId(client, sellerMaskedId);
@@ -1227,15 +1668,22 @@ const createOrderFromCatalogRequest = async ({
         FROM catalog_items
         WHERE seller_masked_id = $1
           AND is_active = TRUE
-        ORDER BY price_per_unit ASC
+          AND stock_quantity > 0
+          AND ($2::bigint IS NULL OR id = $2)
+        ORDER BY
+          CASE WHEN $2::bigint IS NULL THEN price_per_unit END ASC,
+          created_at ASC
         LIMIT 1
       `,
-      [sellerMaskedId]
+      [sellerMaskedId, catalogItemId]
     );
     if (itemResult.rowCount === 0) {
       throw new Error("Supplier has no active catalog item");
     }
     const catalogItem = itemResult.rows[0];
+    if (Number(catalogItem.stock_quantity || 0) < Number(quantity || 0)) {
+      throw new Error("Requested quantity exceeds seller stock.");
+    }
 
     const itemSubtotal = Number(quantity) * Number(catalogItem.price_per_unit);
 
@@ -1317,7 +1765,7 @@ const createOrderFromCatalogRequest = async ({
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $14,$15,$16,NULL,'PENDING_SELLER_DECISION',$17,$18,$19,$20,$21,$22,$23,$24,$25,'SUPPLY',NULL,$26,
+          $14,$15,NULL,'PENDING_SELLER_DECISION',$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'SUPPLY',NULL,$26,
           NULL
         )
         RETURNING *
@@ -1329,6 +1777,7 @@ const createOrderFromCatalogRequest = async ({
         JSON.stringify({
           source: "catalog_buy_command",
           sellerMaskedId,
+          catalogItemId: catalogItem.id,
           quantity,
           commodity: catalogItem.commodity_name,
           pricePerUnit: catalogItem.price_per_unit,
@@ -1373,7 +1822,7 @@ const createOrderFromCatalogRequest = async ({
     await client.query(
       `
         UPDATE platform_users
-        SET current_step = 'AWAITING_SUPPLIER_LOGISTICS_CHOICE',
+        SET current_step = 'AWAITING_SUPPLIER_STOCK_CONFIRM',
             pending_order_id = $2,
             pending_transport_payload = $3,
             updated_at = NOW()
@@ -2001,15 +2450,17 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
               seller_masked_id,
               commodity_name,
               price_per_unit,
+              stock_quantity,
               business_type,
               catalog_metadata
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4, $5, $6)
           `,
           [
             user.masked_id,
             item.commodity,
             item.pricePerUnitKes,
+            Number(item.stockQuantity || 0),
             parsedCatalog.businessType,
             JSON.stringify(item.metadata),
           ]
@@ -2131,19 +2582,202 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (user.current_step === "AWAITING_ORDER_CONFIRM") {
-      if (rawMessage.trim() !== "1") {
+    if (user.current_step === "AWAITING_SEARCH_SELECTION") {
+      if (["0", "2", "cancel"].includes(lowerMessage)) {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: "Reply 1 to confirm checkout and trigger STK Push.",
+          message: "Search cancelled.",
+        });
+      }
+
+      let selection = parseSearchSelectionId(rawMessage);
+      if (!selection && rawMessage.trim() === "1") {
+        let pending = user.pending_transport_payload || {};
+        if (typeof pending === "string") {
+          try {
+            pending = JSON.parse(pending);
+          } catch (_error) {
+            pending = {};
+          }
+        }
+        const firstOption = Array.isArray(pending.options) ? pending.options[0] : null;
+        if (firstOption) {
+          selection = {
+            catalogItemId: Number(firstOption.catalogItemId),
+            sellerMaskedId: String(firstOption.sellerMaskedId),
+          };
+        }
+      }
+      if (!selection) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Reply with a valid selection ID (search_select_<catalog>_<seller>), 1 for best option, or 2 to cancel.",
+        });
+      }
+
+      const rowResult = await query(
+        `
+          SELECT
+            c.id AS catalog_item_id,
+            c.seller_masked_id,
+            c.commodity_name,
+            c.price_per_unit,
+            c.unit_measure,
+            c.location_label,
+            c.stock_quantity,
+            u.company_name
+          FROM catalog_items c
+          JOIN platform_users u ON u.masked_id = c.seller_masked_id
+          WHERE c.id = $1
+            AND c.seller_masked_id = $2
+            AND c.is_active = TRUE
+            AND c.stock_quantity > 0
+            AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
+          LIMIT 1
+        `,
+        [selection.catalogItemId, selection.sellerMaskedId]
+      );
+      if (rowResult.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "That option is no longer available. Please search again.",
+        });
+      }
+
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_SEARCH_QUANTITY',
+              pending_transport_payload = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [
+          user.id,
+          JSON.stringify({
+            source: "catalog_search_selection",
+            catalogItemId: selection.catalogItemId,
+            sellerMaskedId: selection.sellerMaskedId,
+          }),
+        ]
+      );
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: buildSearchQuantityPrompt({ row: rowResult.rows[0] }),
+      });
+    }
+
+    if (user.current_step === "AWAITING_SEARCH_QUANTITY") {
+      if (["0", "cancel"].includes(lowerMessage)) {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Quantity input cancelled.",
+        });
+      }
+
+      const qty = Number(rawMessage.trim());
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Please send a valid quantity number (or 0 to cancel).",
+        });
+      }
+
+      let pending = user.pending_transport_payload || {};
+      if (typeof pending === "string") {
+        try {
+          pending = JSON.parse(pending);
+        } catch (_error) {
+          pending = {};
+        }
+      }
+
+      if (!pending.sellerMaskedId || !pending.catalogItemId) {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Search context expired. Run search again.",
+        });
+      }
+
+      const payload = await createOrderFromCatalogRequest({
+        buyer: user,
+        senderPhone,
+        rawMessage: `search_select_${pending.catalogItemId}_${pending.sellerMaskedId}`,
+        sellerMaskedId: pending.sellerMaskedId,
+        quantity: qty,
+        catalogItemId: pending.catalogItemId,
+      });
+      await notifySellerForLogisticsDecision({ payload });
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "Order sent to seller. Waiting stock + logistics confirmation before payment prompt.",
+      });
+    }
+
+    if (user.current_step === "AWAITING_ORDER_CONFIRM") {
+      const decision = rawMessage.trim();
+      if (!["1", "2"].includes(decision)) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Reply 1 to deposit now or 2 to cancel order.",
         });
       }
       if (user.pending_order_id) {
         const pendingOrder = await query(
           `
-            SELECT order_type, seller_logistics_mode
+            SELECT order_type, seller_logistics_mode, seller_stock_status
             FROM orders
             WHERE id = $1
               AND buyer_masked_id = $2
@@ -2152,6 +2786,19 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           [user.pending_order_id, user.masked_id]
         );
         const order = pendingOrder.rows[0];
+        if (
+          order &&
+          order.order_type === "SUPPLY" &&
+          (order.seller_stock_status || "PENDING") !== "IN_STOCK"
+        ) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message:
+              "Seller has not confirmed stock yet. We will notify you once stock is confirmed.",
+          });
+        }
         if (
           order &&
           order.order_type === "SUPPLY" &&
@@ -2167,6 +2814,40 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           });
         }
       }
+
+      if (decision === "2") {
+        await query(
+          `
+            UPDATE orders
+            SET payment_status = 'PAYMENT_FAILED',
+                settlement_status = 'ON_HOLD',
+                distribution_status = 'ON_HOLD',
+                dispute_reason = COALESCE(dispute_reason, 'Buyer cancelled before payment'),
+                updated_at = NOW()
+            WHERE id = $1
+              AND buyer_masked_id = $2
+          `,
+          [user.pending_order_id, user.masked_id]
+        );
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_order_id = NULL,
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Order cancelled successfully before payment.",
+        });
+      }
+
       const confirmed = await confirmPendingOrderPayment({ user, senderPhone });
       return respondToUser({
         res,
@@ -2198,6 +2879,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     if (
+      user.current_step === "AWAITING_SUPPLIER_STOCK_CONFIRM" ||
       user.current_step === "AWAITING_SUPPLIER_LOGISTICS_CHOICE" ||
       user.current_step === "AWAITING_SUPPLIER_VEHICLE_SELECTION"
     ) {
@@ -2256,6 +2938,182 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     if (
+      user.user_type === "BUYER" &&
+      (/^search\s+/i.test(rawMessage) || /^find\s+/i.test(rawMessage))
+    ) {
+      const searchTerm = rawMessage.replace(/^(search|find)\s+/i, "").trim();
+      if (!searchTerm) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Use: search <product name>. Example: search maize flour",
+        });
+      }
+
+      const rowsResult = await searchCatalogRows({
+        searchTerm,
+      });
+      const rankedRows = rankSearchRowsForBuyer({
+        rows: rowsResult.rows,
+        buyer: user,
+      });
+      if (rankedRows.length === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `No active stock found for "${searchTerm}" right now.`,
+        });
+      }
+
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_SEARCH_SELECTION',
+              pending_transport_payload = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [
+          user.id,
+          JSON.stringify({
+            source: "buyer_search",
+            searchTerm,
+            options: rankedRows.slice(0, 10).map((row) => ({
+              catalogItemId: row.catalog_item_id,
+              sellerMaskedId: row.seller_masked_id,
+            })),
+          }),
+        ]
+      );
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: buildSearchTextList({ searchTerm, rankedRows }),
+        interactiveList: buildSearchInteractiveList({ searchTerm, rankedRows }),
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && /^add\s+stock\s+/i.test(rawMessage)) {
+      const parsedAdd = parseAddStockCommand(rawMessage);
+      if (!parsedAdd || parsedAdd.quantity <= 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Use: Add stock <quantity> <item name>. Example: Add stock 50 Sugar",
+        });
+      }
+
+      const updateResult = await query(
+        `
+          UPDATE catalog_items
+          SET stock_quantity = stock_quantity + $3,
+              updated_at = NOW()
+          WHERE seller_masked_id = $1
+            AND LOWER(commodity_name) LIKE CONCAT('%', LOWER($2), '%')
+            AND is_active = TRUE
+          RETURNING commodity_name, stock_quantity
+        `,
+        [user.masked_id, parsedAdd.commodity, parsedAdd.quantity]
+      );
+
+      if (updateResult.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Item not found in your catalog. Use 'Add new item: Item Name, Price 120, Stock 20' to create it.",
+        });
+      }
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Inventory updated. ${updateResult.rows[0].commodity_name} now has ${Number(
+          updateResult.rows[0].stock_quantity || 0
+        ).toLocaleString()} units.`,
+      });
+    }
+
+    if (
+      user.user_type === "SUPPLIER" &&
+      (/^add\s+new\s+item/i.test(rawMessage) || /^update\s+inventory/i.test(rawMessage))
+    ) {
+      const parsedNewItem = parseInventoryNewItemCommand(rawMessage);
+      if (!parsedNewItem) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Use: Add new item: Premium Milk 1L, Price 150, Stock 20",
+        });
+      }
+
+      const existingItem = await query(
+        `
+          SELECT id
+          FROM catalog_items
+          WHERE seller_masked_id = $1
+            AND LOWER(commodity_name) = LOWER($2)
+          LIMIT 1
+        `,
+        [user.masked_id, parsedNewItem.commodity]
+      );
+
+      if (existingItem.rowCount > 0) {
+        await query(
+          `
+            UPDATE catalog_items
+            SET price_per_unit = $2,
+                stock_quantity = stock_quantity + $3,
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [existingItem.rows[0].id, Math.round(parsedNewItem.price), parsedNewItem.stockQuantity]
+        );
+      } else {
+        await query(
+          `
+            INSERT INTO catalog_items (
+              seller_masked_id,
+              commodity_name,
+              price_per_unit,
+              stock_quantity,
+              business_type,
+              catalog_metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+          `,
+          [
+            user.masked_id,
+            parsedNewItem.commodity,
+            Math.round(parsedNewItem.price),
+            parsedNewItem.stockQuantity,
+            normalizeSupplierBusinessType(user.business_type),
+            JSON.stringify({
+              source: "supplier-add-new-item",
+            }),
+          ]
+        );
+      }
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: "Inventory Updated! Your catalog has been adjusted successfully.",
+      });
+    }
+
+    if (
       user.user_type === "SUPPLIER" &&
       (rawMessage.includes(",") || /^catalog\s+/i.test(rawMessage) || rawMessage.includes("\n"))
     ) {
@@ -2289,15 +3147,17 @@ const handleIncomingWhatsapp = async (req, res, next) => {
                 seller_masked_id,
                 commodity_name,
                 price_per_unit,
+                stock_quantity,
                 business_type,
                 catalog_metadata
               )
-              VALUES ($1, $2, $3, $4, $5)
+              VALUES ($1, $2, $3, $4, $5, $6)
             `,
             [
               user.masked_id,
               item.commodity,
               item.pricePerUnitKes,
+              Number(item.stockQuantity || 0),
               parsedCatalog.businessType,
               JSON.stringify(item.metadata),
             ]
@@ -2329,7 +3189,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           provider,
           senderPhone,
           message:
-            "Order submitted to seller successfully. Waiting seller logistics choice (own delivery or AgizaHub transporter). You will receive checkout confirmation once seller selects.",
+            "Order submitted to seller successfully. Waiting seller stock confirmation, then logistics choice. You will receive checkout payment prompt once seller confirms both.",
         });
       }
 

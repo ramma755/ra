@@ -124,6 +124,7 @@ module.exports = {
     wahaBaseUrl: process.env.WAHA_BASE_URL || "",
     wahaSessionName: process.env.WAHA_SESSION_NAME || "default",
     wahaSendPath: process.env.WAHA_SEND_PATH || "/api/sendText",
+    wahaListPath: process.env.WAHA_LIST_PATH || "/api/sendList",
     wahaApiKeyHeader: process.env.WAHA_API_KEY_HEADER || "X-Api-Key",
     webhookSecret: process.env.WAHA_WEBHOOK_SECRET || "",
     botPhone: process.env.WAHA_BOT_PHONE || "",

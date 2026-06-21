@@ -47,6 +47,11 @@ const parseWahaInbound = (payload) => {
   }
 
   const rawMessage = String(
+    candidate?.selectedRowId ||
+      candidate?.selectedButtonId ||
+      candidate?.buttonId ||
+      candidate?.listReply?.id ||
+      candidate?.buttonReply?.id ||
     candidate?.body ||
       candidate?.text ||
       candidate?.message?.text ||
@@ -132,8 +137,49 @@ const sendWahaMessage = async ({ toPhone, message }) => {
   );
 };
 
-const sendGatewayReply = async ({ provider, toPhone, message }) => {
+const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
+  const chatId = `${normalizeMsisdn(toPhone)}@c.us`;
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (env.whatsappGateway.apiKey) {
+    headers[env.whatsappGateway.wahaApiKeyHeader] = env.whatsappGateway.apiKey;
+    headers.Authorization = `Bearer ${env.whatsappGateway.apiKey}`;
+  }
+
+  const base = env.whatsappGateway.wahaBaseUrl.replace(/\/$/, "");
+  const path = env.whatsappGateway.wahaListPath.startsWith("/")
+    ? env.whatsappGateway.wahaListPath
+    : `/${env.whatsappGateway.wahaListPath}`;
+  const endpoint = `${base}${path}`;
+
+  await axios.post(
+    endpoint,
+    {
+      session: env.whatsappGateway.wahaSessionName,
+      chatId,
+      title: interactiveList.title,
+      body: interactiveList.body,
+      buttonText: interactiveList.buttonText || "Choose",
+      sections: interactiveList.sections || [],
+    },
+    {
+      headers,
+      timeout: 15000,
+    }
+  );
+};
+
+const sendGatewayReply = async ({ provider, toPhone, message, interactiveList }) => {
   if (provider === "WAHA") {
+    if (interactiveList) {
+      try {
+        await sendWahaInteractiveList({ toPhone, interactiveList });
+        return;
+      } catch (_error) {
+        // Fallback to plain text if list API is unavailable.
+      }
+    }
     await sendWahaMessage({ toPhone, message });
   }
 };
