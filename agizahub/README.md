@@ -9,12 +9,16 @@ Backend MVP for a WhatsApp-first broker workflow:
 - Store orders in Supabase Postgres
 - Trigger M-Pesa STK push (Daraja sandbox)
 - Apply monetization rules:
-  - Matching commission: `2%` to `5%` (config-clamped)
-  - Logistics premium: `10%` of transport fee
+  - Tiered platform commission on checkout value:
+    - `< KSh 20,000 => 2%`
+    - `>= KSh 20,000 => 5%`
+  - Logistics transporter cut: `10%` of transporter quote
+  - Incoming gateway fee: `0.55%` (capped at `KSh 200`, free below `KSh 200`)
+  - Outgoing payout fee: flat `KSh 50` per disbursement leg
 - Subscription fee removed (commission-only model)
 - Transport-only marketplace monetization:
-  - requester-side commission (`TRANSPORT_REQUESTER_COMMISSION_PERCENT`, default 5%)
-  - transporter-side commission (`TRANSPORTER_SIDE_COMMISSION_PERCENT`, default 5%)
+  - requester-side commission follows the same tiered rule (`2%` below 20,000; `5%` at/above 20,000)
+  - transporter-side logistics cut uses `LOGISTICS_PREMIUM_PERCENT` (default `10%`)
 - Hold escrow and release payouts through dynamic routing:
   - `PHONE -> B2C`
   - `PAYBILL -> B2B BusinessPayBill`
@@ -22,6 +26,7 @@ Backend MVP for a WhatsApp-first broker workflow:
 - Apply dynamic disbursement-fee deduction on each payout leg before release
 - Gate every delivery payout behind explicit admin release/hold action
 - Use escrow delivery confirmation token format `AGZ-XXXXXX` (hashed at rest)
+- Block supplier catalog activation until merchant confirms terms with `I AGREE`
 - Support refund request -> admin approve/reject pipeline
 - Reconcile callbacks and run treasury/reconciliation jobs
 
@@ -139,6 +144,14 @@ Escrow release credentials (required):
 
 - `DARAJA_INITIATOR_NAME` (sandbox commonly `TestInitiator`)
 - `DARAJA_INITIATOR_PASSWORD` (the API user's credential/security credential)
+- Fee knobs:
+  - `COMMISSION_TIER_THRESHOLD_KES=20000`
+  - `LOW_VALUE_COMMISSION_PERCENT=2`
+  - `HIGH_VALUE_COMMISSION_PERCENT=5`
+  - `INCOMING_GATEWAY_FEE_PERCENT=0.55`
+  - `INCOMING_GATEWAY_FEE_CAP_KES=200`
+  - `INCOMING_GATEWAY_FEE_FREE_BELOW_KES=200`
+  - `OUTGOING_PAYOUT_FLAT_FEE_KES=50`
 
 Expected state transitions:
 
@@ -168,7 +181,8 @@ On success:
 - callbacks reconcile each leg to `SUCCESS/FAILED/TIMEOUT`
 - escrow code format is `AGZ-XXXXXX` and is bcrypt-hashed before storage
 - share the code only after delivery inspection; transporter submits with `Deliver <OrderID> <AGZ-XXXXXX>`
-- fee rules are configurable through:
+- outgoing payout fee defaults to `OUTGOING_PAYOUT_FLAT_FEE_KES=50`
+- optional advanced tier overrides (if you disable flat fee):
   - `DARAJA_B2C_FEE_RULES_JSON`
   - `DARAJA_B2B_FEE_RULES_JSON`
 
@@ -208,6 +222,7 @@ Supplier catalog intake:
 
 - supplier onboarding now includes business type choice:
   - `WHOLESALE`, `RETAILER`, `RESTAURANT`, `GENERAL_SERVICES`
+- supplier must accept merchant agreement by replying `I AGREE` before catalog activation
 - catalog submission supports:
   - quick line: `Item Name, 1200`
   - multi-line menu/list text (AI parser converts to structured entries)
@@ -217,6 +232,7 @@ AI prompts added in code:
 - `src/services/aiParserService.js`
   - `ESCROW_ENGINE_SYSTEM_PROMPT`
   - `MERCHANT_CATALOG_SYSTEM_PROMPT`
+  - `MERCHANT_AGREEMENT_COMPLIANCE_PROMPT`
 
 ---
 

@@ -67,6 +67,16 @@ const buildFeeAdjustedLeg = ({
 
 const buildPayoutLegs = async (client, order) => {
   const legs = [];
+  let gatewayFeeRemaining = Number(Number(order.incoming_gateway_fee_kes || 0).toFixed(2));
+
+  const applyGatewayFeeShare = (grossAmountKes) => {
+    const gross = Number(Number(grossAmountKes || 0).toFixed(2));
+    if (gross <= 0) return 0;
+    if (gatewayFeeRemaining <= 0) return gross;
+    const deducted = Number(Math.min(gross, gatewayFeeRemaining).toFixed(2));
+    gatewayFeeRemaining = Number((gatewayFeeRemaining - deducted).toFixed(2));
+    return Number((gross - deducted).toFixed(2));
+  };
 
   if (Number(order.vendor_amount_kes) > 0) {
     if (order.vendor_id) {
@@ -82,7 +92,7 @@ const buildPayoutLegs = async (client, order) => {
         recipientName: vendor.name,
         destinationType: vendor.wallet_type,
         destinationIdentifier: vendor.mpesa_identifier,
-        grossAmountKes: order.vendor_amount_kes,
+        grossAmountKes: applyGatewayFeeShare(order.vendor_amount_kes),
         accountReference: vendor.account_reference || `ORD-${order.id.slice(0, 8)}`,
       });
       if (leg) legs.push(leg);
@@ -101,7 +111,7 @@ const buildPayoutLegs = async (client, order) => {
         recipientName: supplier.company_name || `Supplier #${order.supplier_masked_id}`,
         destinationType: destination.destinationType,
         destinationIdentifier: destination.destinationIdentifier,
-        grossAmountKes: order.vendor_amount_kes,
+        grossAmountKes: applyGatewayFeeShare(order.vendor_amount_kes),
         accountReference: destination.accountReference || `ORD-${order.id.slice(0, 8)}`,
       });
       if (leg) legs.push(leg);
@@ -121,7 +131,7 @@ const buildPayoutLegs = async (client, order) => {
           recipientName: transporter.name || "Transporter",
           destinationType: "PHONE",
           destinationIdentifier: transporter.phone,
-          grossAmountKes: order.driver_amount_kes,
+          grossAmountKes: applyGatewayFeeShare(order.driver_amount_kes),
           accountReference: `DRV-${order.id.slice(0, 8)}`,
         });
         if (leg) legs.push(leg);
@@ -140,12 +150,18 @@ const buildPayoutLegs = async (client, order) => {
             transporterUser.company_name || `Transporter #${order.transporter_masked_id}`,
           destinationType: destination.destinationType,
           destinationIdentifier: destination.destinationIdentifier,
-          grossAmountKes: order.driver_amount_kes,
+          grossAmountKes: applyGatewayFeeShare(order.driver_amount_kes),
           accountReference: destination.accountReference || `DRV-${order.id.slice(0, 8)}`,
         });
         if (leg) legs.push(leg);
       }
     }
+  }
+
+  if (gatewayFeeRemaining > 0) {
+    throw new Error(
+      `Unable to allocate incoming gateway fee reserve (${gatewayFeeRemaining}) across payout legs`
+    );
   }
 
   return legs;
@@ -321,6 +337,7 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
     }
 
     const platformAmount = Number(order.platform_fee_kes || 0);
+    const incomingGatewayFeeKes = Number(order.incoming_gateway_fee_kes || 0);
     const totalDisbursementFees = Number(
       (
         (payoutLegs.length > 0
@@ -360,6 +377,21 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       );
     }
 
+    if (incomingGatewayFeeKes > 0) {
+      await client.query(
+        `
+          INSERT INTO wallet_balances (wallet_name, current_balance_kes, available_balance_kes)
+          VALUES ('incoming_gateway_fee_reserve', $1, $1)
+          ON CONFLICT (wallet_name)
+          DO UPDATE
+            SET current_balance_kes = wallet_balances.current_balance_kes + EXCLUDED.current_balance_kes,
+                available_balance_kes = wallet_balances.available_balance_kes + EXCLUDED.available_balance_kes,
+                updated_at = NOW()
+        `,
+        [incomingGatewayFeeKes]
+      );
+    }
+
     await client.query(
       `
         UPDATE orders
@@ -389,6 +421,7 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
           orderId: order.id,
           settlementStatus: "AWAITING_RELEASE",
           totalDisbursementFees,
+          incomingGatewayFeeKes,
         }),
       ]
     );
@@ -400,7 +433,8 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       payoutCount: legCount,
       platformAmount,
       totalDisbursementFees,
-      commissionPercent: env.businessRules.matchingCommissionPercent,
+      incomingGatewayFeeKes,
+      commissionPercent: Number(order.commission_percent || 0),
       releaseRequired: true,
     };
   });

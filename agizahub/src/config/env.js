@@ -22,7 +22,6 @@ const baseRequiredKeys = [
   "DARAJA_B2B_TIMEOUT_URL",
   "DARAJA_INITIATOR_NAME",
   "DARAJA_INITIATOR_PASSWORD",
-  "MATCHING_COMMISSION_PERCENT",
   "LOGISTICS_PREMIUM_PERCENT",
   "TRANSPORT_BASE_FEE_KES",
   "TRANSPORT_BASE_DISTANCE_KM",
@@ -163,12 +162,17 @@ module.exports = {
     ),
   },
   businessRules: {
-    matchingCommissionPercent: clamp(
-      process.env.MATCHING_COMMISSION_PERCENT || "3",
-      2,
-      5
-    ),
+    matchingCommissionPercent: clamp(process.env.MATCHING_COMMISSION_PERCENT || "3", 2, 5),
+    commissionTierThresholdKes: Number(process.env.COMMISSION_TIER_THRESHOLD_KES || "20000"),
+    lowValueCommissionPercent: Number(process.env.LOW_VALUE_COMMISSION_PERCENT || "2"),
+    highValueCommissionPercent: Number(process.env.HIGH_VALUE_COMMISSION_PERCENT || "5"),
     logisticsPremiumPercent: Number(process.env.LOGISTICS_PREMIUM_PERCENT || "10"),
+    incomingGatewayFeePercent: Number(process.env.INCOMING_GATEWAY_FEE_PERCENT || "0.55"),
+    incomingGatewayFeeCapKes: Number(process.env.INCOMING_GATEWAY_FEE_CAP_KES || "200"),
+    incomingGatewayFeeFreeBelowKes: Number(
+      process.env.INCOMING_GATEWAY_FEE_FREE_BELOW_KES || "200"
+    ),
+    outgoingPayoutFlatFeeKes: Number(process.env.OUTGOING_PAYOUT_FLAT_FEE_KES || "50"),
     transportBaseFeeKes: Number(process.env.TRANSPORT_BASE_FEE_KES || "1500"),
     transportBaseDistanceKm: Number(process.env.TRANSPORT_BASE_DISTANCE_KM || "10"),
     transportPerKmFeeKes: Number(process.env.TRANSPORT_PER_KM_FEE_KES || "40"),

@@ -30,6 +30,10 @@ const {
   resolveRouteDistance,
 } = require("../services/logisticsPricingService");
 const {
+  resolveTieredCommissionPercent,
+  computeIncomingGatewayFeeKes,
+} = require("../services/pricingPolicyService");
+const {
   enqueueTransportJobBroadcasts,
   listQueuedJobsForDriver,
   claimBroadcastJob,
@@ -89,6 +93,50 @@ const supplierBusinessTypeMenu = () =>
     "3 - RESTAURANT",
     "4 - GENERAL_SERVICES",
   ].join("\n");
+
+const merchantAgreementMessage = () => {
+  const lowPercent = Number(env.businessRules.lowValueCommissionPercent || 2);
+  const highPercent = Number(env.businessRules.highValueCommissionPercent || 5);
+  const threshold = Number(env.businessRules.commissionTierThresholdKes || 20000);
+  const incomingFeePercent = Number(env.businessRules.incomingGatewayFeePercent || 0.55);
+  const incomingFeeCapKes = Number(env.businessRules.incomingGatewayFeeCapKes || 200);
+  const outgoingFeeKes = Number(env.businessRules.outgoingPayoutFlatFeeKes || 50);
+  const logisticsPercent = Number(env.businessRules.logisticsPremiumPercent || 10);
+
+  const smallOrder = 10000;
+  const smallPlatform = Number(((smallOrder * lowPercent) / 100).toFixed(2));
+  const smallGateway = computeIncomingGatewayFeeKes(smallOrder);
+  const smallSettle = Number(
+    (smallOrder - smallPlatform - smallGateway - outgoingFeeKes).toFixed(2)
+  );
+
+  const bigOrder = 30000;
+  const bigPlatform = Number(((bigOrder * highPercent) / 100).toFixed(2));
+  const bigGateway = computeIncomingGatewayFeeKes(bigOrder);
+  const bigSettle = Number(
+    (bigOrder - bigPlatform - bigGateway - outgoingFeeKes).toFixed(2)
+  );
+
+  return [
+    "AGIZAHUB SYSTEM TERMS & COMMISSION AGREEMENT",
+    "",
+    "Performance-based pricing (no monthly subscription):",
+    `- Orders below KSh ${threshold.toLocaleString()}: ${lowPercent}% platform commission`,
+    `- Orders KSh ${threshold.toLocaleString()} and above: ${highPercent}% platform commission`,
+    `- Incoming STK processing fee: ${incomingFeePercent}% (cap KSh ${incomingFeeCapKes}; free below KSh ${Number(
+      env.businessRules.incomingGatewayFeeFreeBelowKes || 200
+    ).toLocaleString()})`,
+    `- Outgoing payout network fee: KSh ${outgoingFeeKes} per disbursement leg`,
+    `- Matched transport cut: ${logisticsPercent}% from transporter quote`,
+    "",
+    "Example calculations:",
+    `- KSh ${smallOrder.toLocaleString()} order -> settle KSh ${smallSettle.toLocaleString()} (after ${lowPercent}% + gateway + payout fee)`,
+    `- KSh ${bigOrder.toLocaleString()} order -> settle KSh ${bigSettle.toLocaleString()} (after ${highPercent}% + gateway cap + payout fee)`,
+    "",
+    "Funds remain in escrow until delivery code verification + admin release.",
+    "Reply exactly: I AGREE",
+  ].join("\n");
+};
 
 const transportCategoryMenu = () =>
   [
@@ -333,6 +381,7 @@ const listCatalogOffersMessage = async () => {
       JOIN platform_users u ON u.masked_id = c.seller_masked_id
       WHERE c.is_active = TRUE
         AND u.user_type = 'SUPPLIER'
+        AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
       ORDER BY c.price_per_unit ASC, c.created_at ASC
       LIMIT 15
     `
@@ -440,6 +489,7 @@ const formatTransportOnlySummary = ({
   transport,
   requesterCommissionPercent,
   requesterCommissionKes,
+  incomingGatewayFeeKes,
   requesterTotalKes,
   transporterCommissionPercent,
   broadcastedDrivers,
@@ -458,6 +508,7 @@ const formatTransportOnlySummary = ({
     `Your Requester Fee (${requesterCommissionPercent}%): KSh ${Number(
       requesterCommissionKes
     ).toLocaleString()}`,
+    `Gateway Fee (settlement-side): KSh ${Number(incomingGatewayFeeKes || 0).toLocaleString()}`,
     `Transporter commission at release: ${transporterCommissionPercent}% (auto-deducted from driver payout)`,
     `Targeted drivers pinged: ${broadcastedDrivers} (corridor ${corridorKey})`,
     `TOTAL TO PAY NOW: KSh ${Number(requesterTotalKes).toLocaleString()}`,
@@ -520,26 +571,24 @@ const createTransportOnlyOrder = async ({
     };
 
     const requesterCommissionPercent = Number(
-      env.businessRules.transportRequesterCommissionPercent
+      resolveTieredCommissionPercent(transport.rawTransportFeeKes)
     );
-    const transporterCommissionPercent = Number(
-      env.businessRules.transporterSideCommissionPercent
-    );
+    const transporterCommissionPercent = Number(env.businessRules.logisticsPremiumPercent);
     const requesterCommissionKes = Number(
       ((transport.rawTransportFeeKes * requesterCommissionPercent) / 100).toFixed(2)
     );
     const transporterCommissionKes = Number(
       ((transport.rawTransportFeeKes * transporterCommissionPercent) / 100).toFixed(2)
     );
-    const requesterTotalKes = Number(
+    const requesterSubtotalKes = Number(
       (transport.rawTransportFeeKes + requesterCommissionKes).toFixed(2)
     );
+    const requesterTotalKes = requesterSubtotalKes;
+    const incomingGatewayFeeKes = computeIncomingGatewayFeeKes(requesterTotalKes);
     const transporterNetPayoutKes = Number(
       (transport.rawTransportFeeKes - transporterCommissionKes).toFixed(2)
     );
-    const platformFeeKes = Number(
-      (requesterCommissionKes + transporterCommissionKes).toFixed(2)
-    );
+    const platformFeeKes = Number((requesterCommissionKes + transporterCommissionKes).toFixed(2));
     const { otp, otpHash } = await generateEscrowToken();
 
     const orderInsert = await client.query(
@@ -554,6 +603,7 @@ const createTransportOnlyOrder = async ({
           delivery_location,
           total_amount_kes,
           platform_fee_kes,
+          incoming_gateway_fee_kes,
           vendor_amount_kes,
           driver_amount_kes,
           delivery_fee_kes,
@@ -585,11 +635,11 @@ const createTransportOnlyOrder = async ({
         )
         VALUES (
           'WHATSAPP',
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW() + INTERVAL '12 hours',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW() + INTERVAL '12 hours',
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $13,NULL,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'TRANSPORT_ONLY',$24,$25,$26,$27,$28,$29,$30
+          $14,NULL,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'TRANSPORT_ONLY',$25,$26,$27,$28,$29,$30,$31
         )
         RETURNING *
       `,
@@ -612,6 +662,7 @@ const createTransportOnlyOrder = async ({
         payload.dropoffLabel,
         requesterTotalKes,
         platformFeeKes,
+        incomingGatewayFeeKes,
         0,
         transporterNetPayoutKes,
         transport.rawTransportFeeKes,
@@ -695,6 +746,7 @@ const createTransportOnlyOrder = async ({
       transport,
       requesterCommissionPercent,
       requesterCommissionKes,
+      incomingGatewayFeeKes,
       requesterTotalKes,
       transporterCommissionPercent,
       transporterCommissionKes,
@@ -825,6 +877,7 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
       transport: transportOrder.transport,
       requesterCommissionPercent: transportOrder.requesterCommissionPercent,
       requesterCommissionKes: transportOrder.requesterCommissionKes,
+      incomingGatewayFeeKes: transportOrder.incomingGatewayFeeKes,
       requesterTotalKes: transportOrder.requesterTotalKes,
       transporterCommissionPercent: transportOrder.transporterCommissionPercent,
       broadcastedDrivers: broadcastSummary.queuedDrivers,
@@ -846,6 +899,9 @@ const createOrderFromCatalogRequest = async ({
     const seller = await resolveUserByMaskedId(client, sellerMaskedId);
     if (!seller || seller.user_type !== "SUPPLIER") {
       throw new Error("Supplier ID not found");
+    }
+    if (seller.merchant_agreement_status !== "ACCEPTED") {
+      throw new Error("Supplier catalog is not active yet");
     }
 
     if (
@@ -879,10 +935,6 @@ const createOrderFromCatalogRequest = async ({
     const transporter = transporterResult.rows[0] || null;
 
     const itemSubtotal = Number(quantity) * Number(catalogItem.price_per_unit);
-    const matchingPercent = Number(env.businessRules.matchingCommissionPercent);
-    const matchingCommission = Number(
-      ((itemSubtotal * matchingPercent) / 100).toFixed(2)
-    );
 
     const distanceResult = await resolveRouteDistance({
       fromLat: seller.hub_latitude,
@@ -898,6 +950,13 @@ const createOrderFromCatalogRequest = async ({
       distanceProvider: distanceResult.distanceProvider,
       routeLabel,
     };
+    const checkoutValueKes = Number(
+      (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
+    );
+    const matchingPercent = Number(resolveTieredCommissionPercent(checkoutValueKes));
+    const matchingCommission = Number(
+      ((itemSubtotal * matchingPercent) / 100).toFixed(2)
+    );
     const vendorAmount = Number((itemSubtotal - matchingCommission).toFixed(2));
     const driverAmount = Number(transport.rawTransportFeeKes);
     const platformFee = Number(
@@ -906,6 +965,7 @@ const createOrderFromCatalogRequest = async ({
     const totalAmount = Number(
       (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
     );
+    const incomingGatewayFeeKes = computeIncomingGatewayFeeKes(totalAmount);
     const { otp, otpHash } = await generateEscrowToken();
 
     const orderInsert = await client.query(
@@ -920,6 +980,7 @@ const createOrderFromCatalogRequest = async ({
           delivery_location,
           total_amount_kes,
           platform_fee_kes,
+          incoming_gateway_fee_kes,
           vendor_amount_kes,
           driver_amount_kes,
           delivery_fee_kes,
@@ -948,12 +1009,12 @@ const createOrderFromCatalogRequest = async ({
         )
         VALUES (
           'WHATSAPP',
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW() + INTERVAL '12 hours',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW() + INTERVAL '12 hours',
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'SUPPLY',$26,$27,
-          CASE WHEN $15 IS NULL THEN NULL ELSE NOW() END
+          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'SUPPLY',$27,$28,
+          CASE WHEN $16 IS NULL THEN NULL ELSE NOW() END
         )
         RETURNING *
       `,
@@ -972,6 +1033,7 @@ const createOrderFromCatalogRequest = async ({
         catalogItem.location_label,
         totalAmount,
         platformFee,
+        incomingGatewayFeeKes,
         vendorAmount,
         driverAmount,
         transport.totalTransportFeeKes,
@@ -1161,12 +1223,16 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
 
     const quantity = Number(parsed.quantity || 1);
     const itemSubtotal = quantity * Number(inventory.price_kes);
-    const matchingCommission = Number(
-      ((itemSubtotal * env.businessRules.matchingCommissionPercent) / 100).toFixed(2)
-    );
     const transport = computeTransportBreakdown({
       distanceKm: env.businessRules.transportBaseDistanceKm,
     });
+    const checkoutValueKes = Number(
+      (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
+    );
+    const matchingPercent = Number(resolveTieredCommissionPercent(checkoutValueKes));
+    const matchingCommission = Number(
+      ((itemSubtotal * matchingPercent) / 100).toFixed(2)
+    );
     const platformFee = Number(
       (matchingCommission + transport.logisticsPremiumKes).toFixed(2)
     );
@@ -1175,6 +1241,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
     const totalAmount = Number(
       (itemSubtotal + transport.totalTransportFeeKes).toFixed(2)
     );
+    const incomingGatewayFeeKes = computeIncomingGatewayFeeKes(totalAmount);
     const { otp, otpHash } = await generateEscrowToken();
 
     const orderResult = await client.query(
@@ -1192,6 +1259,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
           transporter_id,
           total_amount_kes,
           platform_fee_kes,
+          incoming_gateway_fee_kes,
           vendor_amount_kes,
           driver_amount_kes,
           delivery_fee_kes,
@@ -1218,12 +1286,12 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
         )
         VALUES (
           'WHATSAPP',
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW() + INTERVAL '12 hours',
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW() + INTERVAL '12 hours',
           'PENDING_PAYMENT',
           'NOT_STARTED',
           'NOT_STARTED',
-          $16,$17,$18,$19,$20,$21,$22,$23,$24,'SUPPLY',$25,$26,$27,
-          CASE WHEN $27 IS NULL THEN NULL ELSE NOW() END
+          $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,'SUPPLY',$27,$28,$29,
+          CASE WHEN $29 IS NULL THEN NULL ELSE NOW() END
         )
         RETURNING *
       `,
@@ -1239,11 +1307,12 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
         null,
         totalAmount,
         platformFee,
+        incomingGatewayFeeKes,
         vendorAmount,
         driverAmount,
         transport.totalTransportFeeKes,
         otpHash,
-        env.businessRules.matchingCommissionPercent,
+        matchingPercent,
         env.businessRules.logisticsPremiumPercent,
         matchingCommission,
         transport.logisticsPremiumKes,
@@ -1520,7 +1589,8 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           UPDATE platform_users
           SET hub_latitude = $2,
               hub_longitude = $3,
-              current_step = 'AWAITING_CATALOG',
+              merchant_agreement_status = 'PENDING',
+              current_step = 'AWAITING_MERCHANT_AGREEMENT',
               updated_at = NOW()
           WHERE id = $1
         `,
@@ -1531,8 +1601,26 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           user.user_type,
           user.masked_id
         )}. Business type: ${normalizeSupplierBusinessType(user.business_type)}.\n` +
-        "Now add your first catalog line (example: Rice, 4200) or full menu text."
+        `${merchantAgreementMessage()}`
       );
+    }
+
+    if (user.current_step === "AWAITING_MERCHANT_AGREEMENT") {
+      if (trimmed.toUpperCase() !== "I AGREE") {
+        return merchantAgreementMessage();
+      }
+      await client.query(
+        `
+          UPDATE platform_users
+          SET merchant_agreement_status = 'ACCEPTED',
+              merchant_agreement_accepted_at = NOW(),
+              current_step = 'AWAITING_CATALOG',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return "Agreement accepted. Your store is now active. Add first catalog line: Item, Price";
     }
 
     if (user.current_step === "AWAITING_TRANSPORTER_CORRIDOR") {
@@ -1557,6 +1645,18 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
     }
 
     if (user.current_step === "AWAITING_CATALOG") {
+      if (user.merchant_agreement_status !== "ACCEPTED") {
+        await client.query(
+          `
+            UPDATE platform_users
+            SET current_step = 'AWAITING_MERCHANT_AGREEMENT',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return merchantAgreementMessage();
+      }
       const parsedCatalog = await parseAndNormalizeMerchantCatalog({
         rawMessage: trimmed,
         merchantPhone: user.phone_number,
@@ -1662,6 +1762,46 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       ensureUserRecord(client, communicationPhone)
     );
 
+    if (
+      user.user_type === "SUPPLIER" &&
+      lowerMessage === "i agree" &&
+      user.merchant_agreement_status !== "ACCEPTED"
+    ) {
+      const nextStep =
+        user.hub_latitude == null || user.hub_longitude == null
+          ? "AWAITING_SUPPLIER_HUB"
+          : "AWAITING_CATALOG";
+      await query(
+        `
+          UPDATE platform_users
+          SET merchant_agreement_status = 'ACCEPTED',
+              merchant_agreement_accepted_at = NOW(),
+              current_step = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, nextStep]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          nextStep === "AWAITING_SUPPLIER_HUB"
+            ? "Agreement accepted. Send supplier hub coordinates as: latitude,longitude"
+            : "Agreement accepted. Store active. Add catalog with: Item, Price",
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && lowerMessage === "terms") {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: merchantAgreementMessage(),
+      });
+    }
+
     if (user.current_step === "AWAITING_ORDER_CONFIRM") {
       if (rawMessage.trim() !== "1") {
         return respondToUser({
@@ -1747,6 +1887,23 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       user.user_type === "SUPPLIER" &&
       (rawMessage.includes(",") || /^catalog\s+/i.test(rawMessage) || rawMessage.includes("\n"))
     ) {
+      if (user.merchant_agreement_status !== "ACCEPTED") {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'AWAITING_MERCHANT_AGREEMENT',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: merchantAgreementMessage(),
+        });
+      }
       const parsedCatalog = await parseAndNormalizeMerchantCatalog({
         rawMessage,
         merchantPhone: user.phone_number,
