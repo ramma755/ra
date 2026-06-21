@@ -52,6 +52,11 @@ cp .env.example .env
 npm install
 ```
 
+If routing AI via OpenRouter, set:
+
+- `BASE_URL=https://openrouter.ai/api/v1`
+- `OPENAI_API_KEY=<your_openrouter_key>`
+
 Run migrations:
 
 ```bash

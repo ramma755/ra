@@ -118,6 +118,11 @@ module.exports = {
   databaseUrl: process.env.DATABASE_URL,
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiModel: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+  openAiBaseUrl: process.env.OPENAI_BASE_URL || process.env.BASE_URL || "",
+  openRouter: {
+    httpReferer: process.env.OPENROUTER_HTTP_REFERER || "",
+    appName: process.env.OPENROUTER_APP_NAME || "AgizaHub AI",
+  },
   whatsappGateway: {
     provider: whatsappProvider,
     apiKey: process.env.WHATSAPP_GATEWAY_API_KEY || "",

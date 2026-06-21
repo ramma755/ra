@@ -2,7 +2,22 @@ const OpenAI = require("openai");
 const env = require("../config/env");
 const logger = require("./logger");
 
-const client = new OpenAI({ apiKey: env.openAiApiKey });
+const openAiClientConfig = {
+  apiKey: env.openAiApiKey,
+};
+
+if (env.openAiBaseUrl) {
+  openAiClientConfig.baseURL = env.openAiBaseUrl;
+}
+
+if (String(env.openAiBaseUrl || "").includes("openrouter.ai")) {
+  openAiClientConfig.defaultHeaders = {
+    "HTTP-Referer": env.openRouter.httpReferer || "https://agizahub.local",
+    "X-Title": env.openRouter.appName || "AgizaHub AI",
+  };
+}
+
+const client = new OpenAI(openAiClientConfig);
 
 const ORDER_SYSTEM_PROMPT = `
 You are AgizaHub AI, a Kenyan marketplace order parser.
