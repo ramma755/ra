@@ -218,7 +218,7 @@ const catalogIngestionMenu = () =>
     "1 - Type Out Text (Product, Price, Category)",
     "2 - Upload Document (Excel/Word/PDF/CSV)",
     "3 - Snap a Photo (menu board/delivery note/list)",
-    "4 - Quick Inventory Top-Up (Add stock ...)",
+    "4 - Quick Inventory Top-Up (Add stock / Update price)",
   ].join("\n");
 
 const catalogIngestionInteractiveList = () => ({
@@ -247,7 +247,7 @@ const catalogIngestionInteractiveList = () => ({
         {
           id: "catalog_mode_4",
           title: "Quick Inventory Top-Up",
-          description: "Use Add stock command for fast increments",
+          description: "Use Add stock or /update price command",
         },
       ],
     },
@@ -433,6 +433,21 @@ const parseInventoryNewItemCommand = (rawMessage) => {
     commodity: name.slice(0, 50),
     price,
     stockQuantity: Number.isFinite(stock) && stock >= 0 ? stock : 0,
+  };
+};
+
+const parseUpdatePriceCommand = (rawMessage) => {
+  const match = String(rawMessage || "")
+    .trim()
+    .match(/^\/?update\s+price\s+(\d+)\s+(\d+(?:\.\d+)?)$/i);
+  if (!match) return null;
+  const catalogItemId = Number(match[1]);
+  const newPrice = Number(match[2]);
+  if (!Number.isFinite(catalogItemId) || catalogItemId <= 0) return null;
+  if (!Number.isFinite(newPrice) || newPrice <= 0) return null;
+  return {
+    catalogItemId,
+    newPrice: Math.round(newPrice),
   };
 };
 
@@ -717,7 +732,7 @@ const processSupplierCatalogIngestionStep = async ({
     );
     return {
       message:
-        "Quick top-up mode enabled. Use:\n- Add stock 50 Sugar\n- Add new item: Premium Milk 1L, Price 150, Stock 20",
+        "Quick top-up mode enabled. Use:\n- Add stock 50 Sugar\n- /update price 2 340\n- Add new item: Premium Milk 1L, Price 150, Stock 20",
     };
   }
 
@@ -973,6 +988,44 @@ const listCatalogOffersMessage = async () => {
       `Location: ${item.location_label}`,
       `To purchase: Buy ${item.masked_id} 10`,
       `Or search row: search_select_${item.catalog_item_id}_${item.masked_id}`
+    );
+  }
+  return lines.join("\n");
+};
+
+const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
+  const result = await query(
+    `
+      SELECT
+        id,
+        commodity_name,
+        price_per_unit,
+        unit_measure,
+        stock_quantity,
+        is_active
+      FROM catalog_items
+      WHERE seller_masked_id = $1
+      ORDER BY is_active DESC, commodity_name ASC
+      LIMIT 100
+    `,
+    [sellerMaskedId]
+  );
+
+  if (result.rowCount === 0) {
+    return "No catalog items found. Add one with: Add new item: Product Name, Price 150, Stock 20";
+  }
+
+  const lines = [
+    "Your catalog price list (use ID with /update price <ID> <NEW_PRICE>):",
+  ];
+  for (const row of result.rows) {
+    lines.push(
+      "",
+      `ID ${row.id}: ${row.commodity_name}`,
+      `Price: KSh ${Number(row.price_per_unit || 0).toLocaleString()} per ${row.unit_measure || "unit"}`,
+      `Stock: ${Number(row.stock_quantity || 0).toLocaleString()} | ${
+        row.is_active ? "ACTIVE" : "INACTIVE"
+      }`
     );
   }
   return lines.join("\n");
@@ -3971,6 +4024,75 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         senderPhone,
         message: buildSearchTextList({ searchTerm, rankedRows }),
         interactiveList: buildSearchInteractiveList({ searchTerm, rankedRows }),
+      });
+    }
+
+    if (
+      user.user_type === "SUPPLIER" &&
+      /^\/?(my\s+prices|list\s+prices|price\s+list|my\s+catalog)$/i.test(rawMessage.trim())
+    ) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await listSupplierCatalogPricesMessage({
+          sellerMaskedId: user.masked_id,
+        }),
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && /^\/?update\s+price\s+/i.test(rawMessage)) {
+      const parsedPriceUpdate = parseUpdatePriceCommand(rawMessage);
+      if (!parsedPriceUpdate) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Use: /update price <catalog_item_id> <new_price>. Example: /update price 2 340. Type 'my prices' to see item IDs.",
+        });
+      }
+
+      const updateResult = await query(
+        `
+          UPDATE catalog_items
+          SET price_per_unit = $3,
+              is_active = TRUE,
+              catalog_metadata = COALESCE(catalog_metadata, '{}'::jsonb) || $4::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+            AND seller_masked_id = $2
+          RETURNING id, commodity_name, price_per_unit
+        `,
+        [
+          parsedPriceUpdate.catalogItemId,
+          user.masked_id,
+          parsedPriceUpdate.newPrice,
+          JSON.stringify({
+            source: "supplier-price-command",
+            updated_by_phone: senderPhone,
+            updated_at: new Date().toISOString(),
+          }),
+        ]
+      );
+
+      if (updateResult.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Price update failed. Item ID not found under your catalog. Type 'my prices' to view valid IDs.",
+        });
+      }
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Price updated successfully. ID ${updateResult.rows[0].id} (${updateResult.rows[0].commodity_name}) is now KSh ${Number(
+          updateResult.rows[0].price_per_unit
+        ).toLocaleString()}. New buyer checkouts will use this updated price instantly.`,
       });
     }
 

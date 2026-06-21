@@ -256,6 +256,12 @@ Supplier catalog intake:
   - seller inventory commands:
     - `Add stock 50 Sugar`
     - `Add new item: Premium Milk 1L, Price 150, Stock 20`
+    - `my prices` (lists seller item IDs + current prices)
+    - `/update price <catalog_item_id> <new_price>` (example: `/update price 2 340`)
+  - dynamic pricing behavior:
+    - sellers can update prices anytime by WhatsApp command (Option B)
+    - buyer checkout/STK amount is computed from current DB value at order creation time
+    - new orders immediately use the latest saved price
 
 AI prompts added in code:
 
