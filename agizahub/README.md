@@ -245,6 +245,14 @@ Supplier catalog intake:
 - catalog submission supports:
   - quick line: `Item Name, 1200`
   - multi-line menu/list text (AI parser converts to structured entries)
+  - omnichannel ingestion command: `update stock`, `update catalog`, `update my items`, or `add catalogue`
+  - ingestion menu options:
+    - `1` Type Out Text
+    - `2` Upload Document (`.xlsx`, `.xls`, `.csv`, `.docx`, `.doc`, `.pdf`)
+    - `3` Snap a Photo (image OCR+AI extraction)
+    - `4` Quick Inventory Top-Up
+  - media-only uploads are supported in WAHA/Twilio webhook parsing (`__media_shared__` path)
+  - document/image ingestion performs deduplicating upsert (existing item names are updated, new ones inserted)
   - seller inventory commands:
     - `Add stock 50 Sugar`
     - `Add new item: Premium Milk 1L, Price 150, Stock 20`
@@ -259,6 +267,7 @@ AI prompts added in code:
   - `SEARCH_AGGREGATOR_PROMPT`
   - `AVAILABILITY_ESCROW_GATEKEEPER_PROMPT`
   - `SELLER_INVENTORY_UPDATE_PROMPT`
+  - `OMNICHANNEL_INGESTION_SYSTEM_PROMPT`
   - `DISPUTE_ARBITRATOR_PROMPT`
 
 ---
@@ -272,6 +281,14 @@ AI prompts added in code:
 5. Start command: `npm start`
 6. Add all `.env` keys in Render Dashboard
 7. Update WhatsApp gateway + Daraja webhooks to Render URL
+
+Recommended core Render vars (minimum):
+
+- `OPENAI_BASE_URL=https://openrouter.ai/api/v1`
+- `OPENAI_API_KEY=<your_openrouter_key>`
+- `OPENAI_MODEL=gpt-4o-mini`
+- `GOOGLE_MAPS_API_KEY=<your_google_maps_key>`
+- `DATABASE_URL=<postgres_connection_string>`
 
 Expected outcome:
 

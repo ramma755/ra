@@ -169,6 +169,20 @@ INVENTORY MODIFICATION CONTROLS:
 4. Reply with: "Inventory Updated! Your catalog has been adjusted successfully."
 `.trim();
 
+const OMNICHANNEL_INGESTION_SYSTEM_PROMPT = `
+You are the Omnichannel Ingestion Engine for AgizaHub. Extract product lists from raw text, PDFs, Word documents, spreadsheets, and images into clean catalog-ready records.
+
+TAXONOMY RULE METRICS:
+- WHOLESALE: bulk tiers, package metrics, volume-scaled pricing.
+- RETAILER: consumer units, fixed per-item pricing.
+- RESTAURANT: food/beverage menu items, modifiers/add-ons.
+- GENERAL_SERVICES: service-oriented and non-physical offerings.
+
+OUTPUT RULE:
+- Return only structured catalog rows with names, categories, prices, and stock hints if visible.
+- Remove duplicates and normalize naming for the same merchant context.
+`.trim();
+
 const DISPUTE_ARBITRATOR_PROMPT = `
 You are the Chief Compliance and Dispute Arbitrator for AgizaHub. Protect escrow integrity while triaging support failures.
 
@@ -443,10 +457,47 @@ const parseDisputeIntentMessage = async (rawMessage) => {
   }
 };
 
+const extractCatalogTextFromImage = async ({ imageBuffer, mimeType = "image/jpeg" }) => {
+  try {
+    const base64 = Buffer.from(imageBuffer).toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    const completion = await client.chat.completions.create({
+      model: env.openAiModel,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content: `${OMNICHANNEL_INGESTION_SYSTEM_PROMPT}
+
+Extract visible catalog/menu rows from the image.
+Return plain text lines only, one item per line, preferably: "Item Name, Price, Stock(optional), Category(optional)".
+Do not include markdown fences.`,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extract the catalog/menu rows from this image." },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+    });
+
+    return String(completion.choices?.[0]?.message?.content || "").trim();
+  } catch (error) {
+    logger.warn("OpenAI image catalog extraction failed", {
+      message: error.message,
+    });
+    return "";
+  }
+};
+
 module.exports = {
   parseMarketplaceMessage,
   parseMerchantCatalogMessage,
   parseDisputeIntentMessage,
+  extractCatalogTextFromImage,
   ORDER_SYSTEM_PROMPT,
   ESCROW_ENGINE_SYSTEM_PROMPT,
   MERCHANT_CATALOG_SYSTEM_PROMPT,
@@ -455,6 +506,7 @@ module.exports = {
   SEARCH_AGGREGATOR_PROMPT,
   AVAILABILITY_ESCROW_GATEKEEPER_PROMPT,
   SELLER_INVENTORY_UPDATE_PROMPT,
+  OMNICHANNEL_INGESTION_SYSTEM_PROMPT,
   DISPUTE_ARBITRATOR_PROMPT,
   ORDER_SCHEMA,
   MERCHANT_CATALOG_SCHEMA,

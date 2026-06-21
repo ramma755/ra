@@ -40,6 +40,7 @@ const {
   listQueuedJobsForDriver,
   claimBroadcastJob,
 } = require("../services/transportBroadcastService");
+const { extractCatalogTextFromInboundMedia } = require("../services/catalogIngestionService");
 const { sendDisputeEscalationAlert } = require("../services/alertService");
 const logger = require("../services/logger");
 
@@ -208,6 +209,60 @@ const transportVehicleMenu = () =>
     "3 - Canter / Truck (bulk load / 3+ tonnes)",
   ].join("\n");
 
+const catalogIngestionMenu = () =>
+  [
+    "AGIZAHUB INVENTORY ENGINE",
+    "How would you like to update your catalog today?",
+    "",
+    "Reply with 1, 2, 3, or 4:",
+    "1 - Type Out Text (Product, Price, Category)",
+    "2 - Upload Document (Excel/Word/PDF/CSV)",
+    "3 - Snap a Photo (menu board/delivery note/list)",
+    "4 - Quick Inventory Top-Up (Add stock ...)",
+  ].join("\n");
+
+const catalogIngestionInteractiveList = () => ({
+  title: "AgizaHub Inventory Engine",
+  body: "Choose your catalog update mode.",
+  buttonText: "Select mode",
+  sections: [
+    {
+      title: "Catalog ingestion options",
+      rows: [
+        {
+          id: "catalog_mode_1",
+          title: "Type Out Text",
+          description: "Send item lines directly in chat",
+        },
+        {
+          id: "catalog_mode_2",
+          title: "Upload Document",
+          description: "Upload Excel, Word, PDF, or CSV",
+        },
+        {
+          id: "catalog_mode_3",
+          title: "Snap a Photo",
+          description: "Upload clear image of list/menu board",
+        },
+        {
+          id: "catalog_mode_4",
+          title: "Quick Inventory Top-Up",
+          description: "Use Add stock command for fast increments",
+        },
+      ],
+    },
+  ],
+});
+
+const parseCatalogModeChoice = (rawMessage) => {
+  const trimmed = String(rawMessage || "").trim();
+  const rowMatch = trimmed.match(/^catalog_mode_(\d)$/i);
+  if (rowMatch) return rowMatch[1];
+  const number = trimmed.match(/^([1-4])$/);
+  if (number) return number[1];
+  return null;
+};
+
 const helpCenterMenu = () =>
   [
     "AGIZAHUB HELP CENTER",
@@ -282,6 +337,11 @@ const parseHelpOption = (rawMessage) => {
   const numberMatch = trimmed.match(/^([1-5])$/);
   if (numberMatch) return numberMatch[1];
   return null;
+};
+
+const normalizeCatalogMetadata = (metadata) => {
+  if (!metadata || typeof metadata !== "object") return {};
+  return metadata;
 };
 
 const coerceCoordinates = ({ rawMessage, inboundLocation }) => {
@@ -473,6 +533,298 @@ const parseAndNormalizeMerchantCatalog = async ({
     businessType: normalizeSupplierBusinessType(parsed.business_type || businessTypeHint),
     items,
   };
+};
+
+const upsertSupplierCatalogItemsFromParsed = async ({
+  supplierUser,
+  parsedCatalog,
+  sourceTag,
+  client: txClient = null,
+}) => {
+  const run = async (client) => {
+    const businessType = normalizeSupplierBusinessType(
+      parsedCatalog.businessType || supplierUser.business_type
+    );
+    let created = 0;
+    let updated = 0;
+
+    for (const item of parsedCatalog.items || []) {
+      const commodity = String(item.commodity || "").trim().slice(0, 50);
+      const price = Number(item.pricePerUnitKes);
+      if (!commodity || !Number.isFinite(price) || price <= 0) continue;
+
+      const stockProvided = Number.isFinite(Number(item.stockQuantity));
+      const stockValue = stockProvided ? Math.max(0, Number(item.stockQuantity)) : null;
+      const metadata = {
+        ...(normalizeCatalogMetadata(item.metadata) || {}),
+        source: sourceTag || "catalog-ingestion",
+        ingested_at: new Date().toISOString(),
+      };
+
+      const existing = await client.query(
+        `
+          SELECT id
+          FROM catalog_items
+          WHERE seller_masked_id = $1
+            AND LOWER(commodity_name) = LOWER($2)
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [supplierUser.masked_id, commodity]
+      );
+
+      if (existing.rowCount > 0) {
+        await client.query(
+          `
+            UPDATE catalog_items
+            SET price_per_unit = $2,
+                stock_quantity = CASE WHEN $3::int IS NULL THEN stock_quantity ELSE $3 END,
+                business_type = $4,
+                catalog_metadata = COALESCE(catalog_metadata, '{}'::jsonb) || $5::jsonb,
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [existing.rows[0].id, Math.round(price), stockValue, businessType, JSON.stringify(metadata)]
+        );
+        updated += 1;
+      } else {
+        await client.query(
+          `
+            INSERT INTO catalog_items (
+              seller_masked_id,
+              commodity_name,
+              price_per_unit,
+              stock_quantity,
+              business_type,
+              catalog_metadata,
+              is_active,
+              created_at,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())
+          `,
+          [
+            supplierUser.masked_id,
+            commodity,
+            Math.round(price),
+            stockValue == null ? 100 : stockValue,
+            businessType,
+            JSON.stringify(metadata),
+          ]
+        );
+        created += 1;
+      }
+    }
+
+    await client.query(
+      `
+        UPDATE platform_users
+        SET business_type = COALESCE($2, business_type),
+            current_step = 'COMPLETED',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [supplierUser.id, businessType]
+    );
+
+    return {
+      created,
+      updated,
+      businessType,
+      total: created + updated,
+    };
+  };
+  if (txClient) {
+    return run(txClient);
+  }
+  return transaction(run);
+};
+
+const processSupplierCatalogIngestionStep = async ({
+  user,
+  rawMessage,
+  senderPhone,
+  inboundMedia,
+}) => {
+  const trimmed = String(rawMessage || "").trim();
+
+  if (user.current_step === "AWAITING_CATALOG_INGESTION_MODE") {
+    const choice = parseCatalogModeChoice(trimmed);
+    if (!choice) {
+      return {
+        message: catalogIngestionMenu(),
+        interactiveList: catalogIngestionInteractiveList(),
+      };
+    }
+
+    if (choice === "1") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_CATALOG_TEXT_BULK',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        message:
+          "Send catalog lines in text (one per line), e.g.:\nTomatoes, 120\nOnions, 150\nYou can include stock as third value: Onions, 150, 80",
+      };
+    }
+
+    if (choice === "2") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_CATALOG_DOCUMENT',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        message:
+          "Upload your document now (.xlsx/.xls/.csv/.docx/.doc/.pdf). No in-bot size cap is enforced by AgizaHub parser.",
+      };
+    }
+
+    if (choice === "3") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_CATALOG_IMAGE',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        message:
+          "Upload a clear image of your menu/price list/delivery note. The bot will extract and normalize items automatically.",
+      };
+    }
+
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'COMPLETED',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+    return {
+      message:
+        "Quick top-up mode enabled. Use:\n- Add stock 50 Sugar\n- Add new item: Premium Milk 1L, Price 150, Stock 20",
+    };
+  }
+
+  if (user.current_step === "AWAITING_CATALOG_TEXT_BULK") {
+    if (["cancel", "0"].includes(trimmed.toLowerCase())) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return { message: "Catalog update cancelled." };
+    }
+
+    const parsedCatalog = await parseAndNormalizeMerchantCatalog({
+      rawMessage: trimmed,
+      merchantPhone: user.phone_number,
+      businessTypeHint: user.business_type,
+    });
+    if (!parsedCatalog.items.length) {
+      return {
+        message:
+          "No valid catalog lines detected. Please resend in format: Product, Price[, Stock]",
+      };
+    }
+    const summary = await upsertSupplierCatalogItemsFromParsed({
+      supplierUser: user,
+      parsedCatalog,
+      sourceTag: "text-manual-ingestion",
+    });
+    return {
+      message: `Catalog synced successfully. Added ${summary.created}, updated ${summary.updated} (${summary.businessType}).`,
+    };
+  }
+
+  if (
+    user.current_step === "AWAITING_CATALOG_DOCUMENT" ||
+    user.current_step === "AWAITING_CATALOG_IMAGE"
+  ) {
+    if (!inboundMedia?.url) {
+      return {
+        message:
+          user.current_step === "AWAITING_CATALOG_DOCUMENT"
+            ? "Please upload a document file (Excel/Word/PDF/CSV)."
+            : "Please upload an image file (photo of list/menu board).",
+      };
+    }
+
+    try {
+      const extracted = await extractCatalogTextFromInboundMedia({
+        media: inboundMedia,
+      });
+      if (
+        user.current_step === "AWAITING_CATALOG_IMAGE" &&
+        extracted.mediaKind !== "image"
+      ) {
+        return {
+          message:
+            "That upload is not an image. Please send a photo (jpg/png/webp) or choose document mode.",
+        };
+      }
+      if (
+        user.current_step === "AWAITING_CATALOG_DOCUMENT" &&
+        extracted.mediaKind === "image"
+      ) {
+        return {
+          message:
+            "Image detected. Please choose option 3 for photo mode, or upload an Excel/Word/PDF/CSV file.",
+        };
+      }
+
+      const parsedCatalog = await parseAndNormalizeMerchantCatalog({
+        rawMessage: extracted.extractedText,
+        merchantPhone: user.phone_number,
+        businessTypeHint: user.business_type,
+      });
+      if (!parsedCatalog.items.length) {
+        return {
+          message:
+            "Upload parsed but no catalog rows were recognized. Try clearer file formatting or send text lines directly.",
+        };
+      }
+
+      const summary = await upsertSupplierCatalogItemsFromParsed({
+        supplierUser: user,
+        parsedCatalog,
+        sourceTag: `upload-${extracted.mediaKind}`,
+      });
+
+      return {
+        message: `Upload processed (${extracted.mediaKind}). Added ${summary.created}, updated ${summary.updated} items (${summary.businessType}).`,
+      };
+    } catch (error) {
+      logger.warn("Catalog media ingestion failed", {
+        userId: user.id,
+        error: error.message,
+      });
+      return {
+        message: `Upload processing failed: ${error.message}`,
+      };
+    }
+  }
+
+  return null;
 };
 
 const parseTransportCategory = (choice) => {
@@ -2932,39 +3284,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone, inboundLoc
       if (!parsedCatalog.items.length) {
         return "Invalid catalog format. Use: Commodity, Price (example: Onions, 1800) or paste menu lines for AI parsing.";
       }
-      for (const item of parsedCatalog.items) {
-        await client.query(
-          `
-            INSERT INTO catalog_items (
-              seller_masked_id,
-              commodity_name,
-              price_per_unit,
-              stock_quantity,
-              business_type,
-              catalog_metadata
-            )
-            VALUES ($1, $2, $3, $4, $5, $6)
-          `,
-          [
-            user.masked_id,
-            item.commodity,
-            item.pricePerUnitKes,
-            Number(item.stockQuantity || 0),
-            parsedCatalog.businessType,
-            JSON.stringify(item.metadata),
-          ]
-        );
-      }
-      await client.query(
-        `
-          UPDATE platform_users
-          SET current_step = 'COMPLETED',
-              updated_at = NOW()
-          WHERE id = $1
-        `,
-        [user.id]
-      );
-      return `${parsedCatalog.items.length} catalog item(s) saved for Seller #${user.masked_id} (${parsedCatalog.businessType}). Buyers only see masked IDs.`;
+      const summary = await upsertSupplierCatalogItemsFromParsed({
+        supplierUser: user,
+        parsedCatalog,
+        sourceTag: "onboarding-catalog",
+        client,
+      });
+      return `${summary.total} catalog item(s) synced for Seller #${user.masked_id} (${summary.businessType}). Buyers only see masked IDs.`;
     }
 
     await client.query(
@@ -2997,6 +3323,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       senderPhone,
       senderName,
       inboundLocation,
+      inboundMedia,
     } = inbound;
     const lowerMessage = rawMessage.toLowerCase();
 
@@ -3497,6 +3824,29 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
+    if (
+      user.current_step === "AWAITING_CATALOG_INGESTION_MODE" ||
+      user.current_step === "AWAITING_CATALOG_TEXT_BULK" ||
+      user.current_step === "AWAITING_CATALOG_DOCUMENT" ||
+      user.current_step === "AWAITING_CATALOG_IMAGE"
+    ) {
+      const response = await processSupplierCatalogIngestionStep({
+        user,
+        rawMessage,
+        senderPhone,
+        inboundMedia,
+      });
+      if (response) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: response.message,
+          interactiveList: response.interactiveList || null,
+        });
+      }
+    }
+
     if (!user.user_type || user.current_step !== "COMPLETED") {
       const onboardingResponse = await processOnboardingStep({
         user,
@@ -3509,6 +3859,30 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message: onboardingResponse,
+      });
+    }
+
+    if (
+      user.user_type === "SUPPLIER" &&
+      /^(update(\s+my)?\s+(items|catalog|catalogue|stock)|add\s+(catalog|catalogue)|catalog(\s+update)?)$/i.test(
+        lowerMessage
+      )
+    ) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_CATALOG_INGESTION_MODE',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: catalogIngestionMenu(),
+        interactiveList: catalogIngestionInteractiveList(),
       });
     }
 
@@ -3743,34 +4117,16 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         businessTypeHint: user.business_type,
       });
       if (parsedCatalog.items.length > 0) {
-        for (const item of parsedCatalog.items) {
-          await query(
-            `
-              INSERT INTO catalog_items (
-                seller_masked_id,
-                commodity_name,
-                price_per_unit,
-                stock_quantity,
-                business_type,
-                catalog_metadata
-              )
-              VALUES ($1, $2, $3, $4, $5, $6)
-            `,
-            [
-              user.masked_id,
-              item.commodity,
-              item.pricePerUnitKes,
-              Number(item.stockQuantity || 0),
-              parsedCatalog.businessType,
-              JSON.stringify(item.metadata),
-            ]
-          );
-        }
+        const summary = await upsertSupplierCatalogItemsFromParsed({
+          supplierUser: user,
+          parsedCatalog,
+          sourceTag: "supplier-chat-catalog",
+        });
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: `Added ${parsedCatalog.items.length} item(s) under ${parsedCatalog.businessType}.`,
+          message: `Catalog synced. Added ${summary.created}, updated ${summary.updated} (${summary.businessType}).`,
         });
       }
     }

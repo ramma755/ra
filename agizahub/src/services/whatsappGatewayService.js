@@ -23,7 +23,22 @@ const parseTwilioInbound = (payload) => {
       ? { latitude, longitude }
       : null;
 
-  const rawMessage = String(payload.Body || (inboundLocation ? "__location_shared__" : "")).trim();
+  const mediaCount = Number(payload.NumMedia || payload.numMedia || 0);
+  const inboundMedia =
+    mediaCount > 0
+      ? {
+          provider: "TWILIO",
+          url: payload.MediaUrl0 || payload.mediaUrl0 || null,
+          mimeType: payload.MediaContentType0 || payload.mediaContentType0 || null,
+          fileName: payload.MediaFilename0 || payload.mediaFilename0 || null,
+        }
+      : null;
+
+  const rawMessage = String(
+    payload.Body ||
+      (inboundLocation ? "__location_shared__" : "") ||
+      (inboundMedia ? "__media_shared__" : "")
+  ).trim();
   const senderMsisdn = normalizeSenderMsisdn(payload.WaId || payload.From || "");
 
   if (!rawMessage || !senderMsisdn) {
@@ -42,6 +57,7 @@ const parseTwilioInbound = (payload) => {
     communicationPhone: asCommunicationPhone(senderMsisdn),
     senderName: payload.ProfileName || "User",
     inboundLocation,
+    inboundMedia,
   };
 };
 
@@ -70,6 +86,46 @@ const parseWahaInbound = (payload) => {
       ? { latitude, longitude }
       : null;
 
+  const mediaCandidate =
+    candidate?.media ||
+    candidate?.document ||
+    candidate?.image ||
+    candidate?.file ||
+    payload?.media ||
+    payload?.document ||
+    payload?.image ||
+    null;
+  const mediaUrl =
+    mediaCandidate?.url ||
+    mediaCandidate?.link ||
+    mediaCandidate?.downloadUrl ||
+    mediaCandidate?.download_url ||
+    candidate?.mediaUrl ||
+    payload?.mediaUrl ||
+    null;
+  const mediaMimeType =
+    mediaCandidate?.mimetype ||
+    mediaCandidate?.mimeType ||
+    candidate?.mimetype ||
+    payload?.mimetype ||
+    null;
+  const mediaFileName =
+    mediaCandidate?.filename ||
+    mediaCandidate?.fileName ||
+    mediaCandidate?.name ||
+    candidate?.filename ||
+    payload?.filename ||
+    null;
+  const inboundMedia =
+    mediaUrl || mediaMimeType || mediaFileName
+      ? {
+          provider: "WAHA",
+          url: mediaUrl,
+          mimeType: mediaMimeType,
+          fileName: mediaFileName,
+        }
+      : null;
+
   const rawMessage = String(
     candidate?.selectedRowId ||
       candidate?.selectedButtonId ||
@@ -82,6 +138,7 @@ const parseWahaInbound = (payload) => {
       payload?.body ||
       payload?.text ||
       (inboundLocation ? "__location_shared__" : "") ||
+      (inboundMedia ? "__media_shared__" : "") ||
       ""
   ).trim();
 
@@ -115,6 +172,7 @@ const parseWahaInbound = (payload) => {
     senderName:
       candidate?.pushName || candidate?.senderName || payload?.senderName || "User",
     inboundLocation,
+    inboundMedia,
   };
 };
 
