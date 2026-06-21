@@ -3,6 +3,7 @@ const { query, transaction } = require("../config/db");
 const env = require("../config/env");
 const { dispatchLeg } = require("./payoutRouter");
 const { normalizeMsisdn } = require("./darajaService");
+const { resolveDisbursementFeeKes } = require("./mpesaFeeService");
 
 const resolvePlatformUserDestination = (platformUser) => {
   const paymentMode = platformUser.payment_mode || "SEND_MONEY";
@@ -28,6 +29,42 @@ const resolvePlatformUserDestination = (platformUser) => {
   };
 };
 
+const buildFeeAdjustedLeg = ({
+  legKind,
+  recipientName,
+  destinationType,
+  destinationIdentifier,
+  grossAmountKes,
+  accountReference,
+}) => {
+  const grossAmount = Number(Number(grossAmountKes || 0).toFixed(2));
+  const processingFeeKes = resolveDisbursementFeeKes({
+    amountKes: grossAmount,
+    destinationType,
+  });
+  const netAmountKes = Number((grossAmount - processingFeeKes).toFixed(2));
+
+  if (grossAmount <= 0) {
+    return null;
+  }
+  if (netAmountKes <= 0) {
+    throw new Error(
+      `${legKind} payout amount (${grossAmount}) is too low after disbursement fee (${processingFeeKes})`
+    );
+  }
+
+  return {
+    legKind,
+    recipientName,
+    destinationType,
+    destinationIdentifier,
+    grossAmountKes: grossAmount,
+    processingFeeKes,
+    amountKes: netAmountKes,
+    accountReference,
+  };
+};
+
 const buildPayoutLegs = async (client, order) => {
   const legs = [];
 
@@ -40,14 +77,15 @@ const buildPayoutLegs = async (client, order) => {
         throw new Error("Order has no valid vendor");
       }
       const vendor = vendorResult.rows[0];
-      legs.push({
+      const leg = buildFeeAdjustedLeg({
         legKind: "VENDOR",
         recipientName: vendor.name,
         destinationType: vendor.wallet_type,
         destinationIdentifier: vendor.mpesa_identifier,
-        amountKes: order.vendor_amount_kes,
+        grossAmountKes: order.vendor_amount_kes,
         accountReference: vendor.account_reference || `ORD-${order.id.slice(0, 8)}`,
       });
+      if (leg) legs.push(leg);
     } else if (order.supplier_masked_id) {
       const supplierResult = await client.query(
         `SELECT * FROM platform_users WHERE masked_id = $1`,
@@ -58,16 +96,15 @@ const buildPayoutLegs = async (client, order) => {
       }
       const supplier = supplierResult.rows[0];
       const destination = resolvePlatformUserDestination(supplier);
-      legs.push({
+      const leg = buildFeeAdjustedLeg({
         legKind: "VENDOR",
-        recipientName:
-          supplier.company_name || `Supplier #${order.supplier_masked_id}`,
+        recipientName: supplier.company_name || `Supplier #${order.supplier_masked_id}`,
         destinationType: destination.destinationType,
         destinationIdentifier: destination.destinationIdentifier,
-        amountKes: order.vendor_amount_kes,
-        accountReference:
-          destination.accountReference || `ORD-${order.id.slice(0, 8)}`,
+        grossAmountKes: order.vendor_amount_kes,
+        accountReference: destination.accountReference || `ORD-${order.id.slice(0, 8)}`,
       });
+      if (leg) legs.push(leg);
     }
   }
 
@@ -79,14 +116,15 @@ const buildPayoutLegs = async (client, order) => {
       );
       if (transporterResult.rowCount > 0) {
         const transporter = transporterResult.rows[0];
-        legs.push({
+        const leg = buildFeeAdjustedLeg({
           legKind: "DRIVER",
           recipientName: transporter.name || "Transporter",
           destinationType: "PHONE",
           destinationIdentifier: transporter.phone,
-          amountKes: order.driver_amount_kes,
+          grossAmountKes: order.driver_amount_kes,
           accountReference: `DRV-${order.id.slice(0, 8)}`,
         });
+        if (leg) legs.push(leg);
       }
     } else if (order.transporter_masked_id) {
       const transporterUserResult = await client.query(
@@ -96,17 +134,16 @@ const buildPayoutLegs = async (client, order) => {
       if (transporterUserResult.rowCount > 0) {
         const transporterUser = transporterUserResult.rows[0];
         const destination = resolvePlatformUserDestination(transporterUser);
-        legs.push({
+        const leg = buildFeeAdjustedLeg({
           legKind: "DRIVER",
           recipientName:
-            transporterUser.company_name ||
-            `Transporter #${order.transporter_masked_id}`,
+            transporterUser.company_name || `Transporter #${order.transporter_masked_id}`,
           destinationType: destination.destinationType,
           destinationIdentifier: destination.destinationIdentifier,
-          amountKes: order.driver_amount_kes,
-          accountReference:
-            destination.accountReference || `DRV-${order.id.slice(0, 8)}`,
+          grossAmountKes: order.driver_amount_kes,
+          accountReference: destination.accountReference || `DRV-${order.id.slice(0, 8)}`,
         });
+        if (leg) legs.push(leg);
       }
     }
   }
@@ -231,14 +268,15 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       throw new Error("OTP expired");
     }
 
-    const otpOk = await bcrypt.compare(otp, order.otp_code_hash);
+    const normalizedOtp = String(otp || "").trim().toUpperCase();
+    const otpOk = await bcrypt.compare(normalizedOtp, order.otp_code_hash);
     if (!otpOk) {
       throw new Error("Invalid OTP");
     }
 
     const existingLegs = await client.query(
       `
-        SELECT id
+        SELECT id, processing_fee_kes
         FROM mpesa_payout_legs
         WHERE order_id = $1
           AND leg_kind IN ('VENDOR', 'DRIVER')
@@ -259,11 +297,13 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
               recipient_name,
               destination_type,
               destination_identifier,
+              gross_amount_kes,
+              processing_fee_kes,
               amount_kes,
               account_reference,
               status
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDING')
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PENDING')
           `,
           [
             order.id,
@@ -271,6 +311,8 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
             leg.recipientName,
             leg.destinationType,
             leg.destinationIdentifier,
+            leg.grossAmountKes,
+            leg.processingFeeKes,
             leg.amountKes,
             leg.accountReference,
           ]
@@ -279,6 +321,16 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
     }
 
     const platformAmount = Number(order.platform_fee_kes || 0);
+    const totalDisbursementFees = Number(
+      (
+        (payoutLegs.length > 0
+          ? payoutLegs.reduce((sum, leg) => sum + Number(leg.processingFeeKes || 0), 0)
+          : existingLegs.rows.reduce(
+              (sum, row) => sum + Number(row.processing_fee_kes || 0),
+              0
+            )) || 0
+      ).toFixed(2)
+    );
 
     await client.query(
       `
@@ -292,6 +344,21 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       `,
       [platformAmount]
     );
+
+    if (totalDisbursementFees > 0) {
+      await client.query(
+        `
+          INSERT INTO wallet_balances (wallet_name, current_balance_kes, available_balance_kes)
+          VALUES ('disbursement_fee_reserve', $1, $1)
+          ON CONFLICT (wallet_name)
+          DO UPDATE
+            SET current_balance_kes = wallet_balances.current_balance_kes + EXCLUDED.current_balance_kes,
+                available_balance_kes = wallet_balances.available_balance_kes + EXCLUDED.available_balance_kes,
+                updated_at = NOW()
+        `,
+        [totalDisbursementFees]
+      );
+    }
 
     await client.query(
       `
@@ -321,6 +388,7 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
         JSON.stringify({
           orderId: order.id,
           settlementStatus: "AWAITING_RELEASE",
+          totalDisbursementFees,
         }),
       ]
     );
@@ -331,6 +399,7 @@ const verifyOtpAndQueueRelease = async ({ orderId, otp }) => {
       orderId: order.id,
       payoutCount: legCount,
       platformAmount,
+      totalDisbursementFees,
       commissionPercent: env.businessRules.matchingCommissionPercent,
       releaseRequired: true,
     };
@@ -545,6 +614,17 @@ const approveRefundByAdmin = async ({ orderId, actorPhone }) => {
           destinationIdentifier: normalizeMsisdn(order.buyer_phone),
           accountReference: `RFND-${order.id.slice(0, 8)}`,
         };
+    const refundLeg = buildFeeAdjustedLeg({
+      legKind: "REFUND",
+      recipientName: buyerProfile?.company_name || `Buyer #${order.buyer_masked_id || "N/A"}`,
+      destinationType: destination.destinationType,
+      destinationIdentifier: destination.destinationIdentifier,
+      grossAmountKes: Number(order.collected_amount || order.total_amount_kes || 0),
+      accountReference: destination.accountReference || `RFND-${order.id.slice(0, 8)}`,
+    });
+    if (!refundLeg) {
+      throw new Error("Refund amount is zero");
+    }
 
     await client.query(
       `
@@ -554,21 +634,40 @@ const approveRefundByAdmin = async ({ orderId, actorPhone }) => {
           recipient_name,
           destination_type,
           destination_identifier,
+          gross_amount_kes,
+          processing_fee_kes,
           amount_kes,
           account_reference,
           status
         )
-        VALUES ($1, 'REFUND', $2, $3, $4, $5, $6, 'PENDING')
+        VALUES ($1, 'REFUND', $2, $3, $4, $5, $6, $7, $8, 'PENDING')
       `,
       [
         orderId,
-        buyerProfile?.company_name || `Buyer #${order.buyer_masked_id || "N/A"}`,
-        destination.destinationType,
-        destination.destinationIdentifier,
-        Number(order.collected_amount || order.total_amount_kes || 0),
-        destination.accountReference || `RFND-${order.id.slice(0, 8)}`,
+        refundLeg.recipientName,
+        refundLeg.destinationType,
+        refundLeg.destinationIdentifier,
+        refundLeg.grossAmountKes,
+        refundLeg.processingFeeKes,
+        refundLeg.amountKes,
+        refundLeg.accountReference,
       ]
     );
+
+    if (Number(refundLeg.processingFeeKes) > 0) {
+      await client.query(
+        `
+          INSERT INTO wallet_balances (wallet_name, current_balance_kes, available_balance_kes)
+          VALUES ('disbursement_fee_reserve', $1, $1)
+          ON CONFLICT (wallet_name)
+          DO UPDATE
+            SET current_balance_kes = wallet_balances.current_balance_kes + EXCLUDED.current_balance_kes,
+                available_balance_kes = wallet_balances.available_balance_kes + EXCLUDED.available_balance_kes,
+                updated_at = NOW()
+        `,
+        [refundLeg.processingFeeKes]
+      );
+    }
 
     await client.query(
       `

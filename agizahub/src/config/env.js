@@ -61,6 +61,57 @@ if (missingKeys.length > 0) {
 }
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+const parseFeeRules = (rawValue, fallback) => {
+  if (!rawValue) return fallback;
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) return fallback;
+    return parsed
+      .map((rule) => ({
+        min: Number(rule.min),
+        max: Number(rule.max),
+        fee: Number(rule.fee),
+      }))
+      .filter(
+        (rule) =>
+          Number.isFinite(rule.min) &&
+          Number.isFinite(rule.max) &&
+          Number.isFinite(rule.fee) &&
+          rule.min >= 0 &&
+          rule.max >= rule.min &&
+          rule.fee >= 0
+      );
+  } catch (_error) {
+    return fallback;
+  }
+};
+
+const defaultB2CFeeRules = [
+  { min: 1, max: 49, fee: 0 },
+  { min: 50, max: 100, fee: 0 },
+  { min: 101, max: 500, fee: 7 },
+  { min: 501, max: 1000, fee: 13 },
+  { min: 1001, max: 1500, fee: 23 },
+  { min: 1501, max: 2500, fee: 33 },
+  { min: 2501, max: 3500, fee: 53 },
+  { min: 3501, max: 5000, fee: 57 },
+  { min: 5001, max: 7500, fee: 78 },
+  { min: 7501, max: 10000, fee: 90 },
+  { min: 10001, max: 15000, fee: 100 },
+  { min: 15001, max: 20000, fee: 105 },
+  { min: 20001, max: 35000, fee: 108 },
+  { min: 35001, max: 50000, fee: 108 },
+  { min: 50001, max: 1000000, fee: 108 },
+];
+
+const defaultB2BFeeRules = [
+  { min: 1, max: 1000, fee: 15 },
+  { min: 1001, max: 5000, fee: 25 },
+  { min: 5001, max: 10000, fee: 35 },
+  { min: 10001, max: 20000, fee: 45 },
+  { min: 20001, max: 50000, fee: 55 },
+  { min: 50001, max: 1000000, fee: 65 },
+];
 
 module.exports = {
   nodeEnv: process.env.NODE_ENV || "development",
@@ -102,6 +153,14 @@ module.exports = {
     b2bTillCommandId:
       process.env.DARAJA_B2B_TILL_COMMAND_ID || "BusinessBuyGoods",
     queueTimeoutUrl: process.env.DARAJA_QUEUE_TIMEOUT_URL,
+    b2cFeeRules: parseFeeRules(
+      process.env.DARAJA_B2C_FEE_RULES_JSON,
+      defaultB2CFeeRules
+    ),
+    b2bFeeRules: parseFeeRules(
+      process.env.DARAJA_B2B_FEE_RULES_JSON,
+      defaultB2BFeeRules
+    ),
   },
   businessRules: {
     matchingCommissionPercent: clamp(

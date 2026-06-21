@@ -19,6 +19,7 @@ Backend MVP for a WhatsApp-first broker workflow:
   - `PHONE -> B2C`
   - `PAYBILL -> B2B BusinessPayBill`
   - `TILL -> B2B BusinessBuyGoods`
+- Apply dynamic disbursement-fee deduction on each payout leg before release
 - Gate every delivery payout behind explicit admin release/hold action
 - Use escrow delivery confirmation token format `AGZ-XXXXXX` (hashed at rest)
 - Support refund request -> admin approve/reject pipeline
@@ -155,7 +156,7 @@ When rider delivers, confirm OTP:
 ```bash
 curl -X POST "http://localhost:10000/orders/<order-id>/confirm-otp" \
   -H "Content-Type: application/json" \
-  -d '{"otp":"123456"}'
+  -d '{"otp":"AGZ-408129"}'
 ```
 
 On success:
@@ -163,9 +164,13 @@ On success:
 - payout legs are prepared and order is locked in `AWAITING_RELEASE`
 - admin must explicitly release funds (`Release <OrderID>`)
 - routing executes via B2C/B2B based on wallet/payment mode
+- each payout leg is fee-adjusted (`net payout = gross - Daraja disbursement fee`) to protect wallet float
 - callbacks reconcile each leg to `SUCCESS/FAILED/TIMEOUT`
 - escrow code format is `AGZ-XXXXXX` and is bcrypt-hashed before storage
 - share the code only after delivery inspection; transporter submits with `Deliver <OrderID> <AGZ-XXXXXX>`
+- fee rules are configurable through:
+  - `DARAJA_B2C_FEE_RULES_JSON`
+  - `DARAJA_B2B_FEE_RULES_JSON`
 
 Transport charge engine for buyer checkout:
 
@@ -191,7 +196,7 @@ Transport-only mode (no supplier involved):
 - Drivers can set targeting profile:
   - `vehicle 1|2|3` to set capacity class
   - `corridor <town/area>` to set preferred corridor (or leave blank for broad matching)
-- Driver finalizes delivery with `Deliver <OrderID> <OTP>`
+- Driver finalizes delivery with `Deliver <OrderID> <AGZ-XXXXXX>`
 - Admin still controls release with `Release <OrderID>`
 - Global transporter timeout guard:
   - `TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES` (default 20)
