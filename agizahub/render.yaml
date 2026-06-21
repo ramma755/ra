@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: agizahub-api
+    env: node
+    plan: free
+    rootDir: agizahub
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
