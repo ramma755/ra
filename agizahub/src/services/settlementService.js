@@ -461,7 +461,11 @@ const releaseOrderByAdmin = async ({ orderId, actorPhone }) => {
     if (order.payment_status !== "PAID_HELD") {
       throw new Error("Only paid-held orders can be released");
     }
-    if (!["AWAITING_RELEASE", "ON_HOLD", "IN_PROGRESS"].includes(order.settlement_status)) {
+    if (
+      !["AWAITING_RELEASE", "ON_HOLD", "DISPUTED_HOLD", "IN_PROGRESS"].includes(
+        order.settlement_status
+      )
+    ) {
       throw new Error("Order is not in a releasable state");
     }
 

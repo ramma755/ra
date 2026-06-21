@@ -16,7 +16,14 @@ const normalizeSenderMsisdn = (rawValue) => {
 };
 
 const parseTwilioInbound = (payload) => {
-  const rawMessage = String(payload.Body || "").trim();
+  const latitude = Number(payload.Latitude || payload.latitude || NaN);
+  const longitude = Number(payload.Longitude || payload.longitude || NaN);
+  const inboundLocation =
+    Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? { latitude, longitude }
+      : null;
+
+  const rawMessage = String(payload.Body || (inboundLocation ? "__location_shared__" : "")).trim();
   const senderMsisdn = normalizeSenderMsisdn(payload.WaId || payload.From || "");
 
   if (!rawMessage || !senderMsisdn) {
@@ -34,6 +41,7 @@ const parseTwilioInbound = (payload) => {
     senderPhone: senderMsisdn,
     communicationPhone: asCommunicationPhone(senderMsisdn),
     senderName: payload.ProfileName || "User",
+    inboundLocation,
   };
 };
 
@@ -46,6 +54,22 @@ const parseWahaInbound = (payload) => {
     return { ignore: true, provider: "WAHA", reason: "self-message" };
   }
 
+  const locationPayload =
+    candidate?.location ||
+    candidate?.message?.location ||
+    payload?.location ||
+    null;
+  const latitude = Number(
+    locationPayload?.latitude || locationPayload?.lat || locationPayload?.y || NaN
+  );
+  const longitude = Number(
+    locationPayload?.longitude || locationPayload?.lng || locationPayload?.x || NaN
+  );
+  const inboundLocation =
+    Number.isFinite(latitude) && Number.isFinite(longitude)
+      ? { latitude, longitude }
+      : null;
+
   const rawMessage = String(
     candidate?.selectedRowId ||
       candidate?.selectedButtonId ||
@@ -57,6 +81,7 @@ const parseWahaInbound = (payload) => {
       candidate?.message?.text ||
       payload?.body ||
       payload?.text ||
+      (inboundLocation ? "__location_shared__" : "") ||
       ""
   ).trim();
 
@@ -89,6 +114,7 @@ const parseWahaInbound = (payload) => {
     communicationPhone: asCommunicationPhone(senderMsisdn),
     senderName:
       candidate?.pushName || candidate?.senderName || payload?.senderName || "User",
+    inboundLocation,
   };
 };
 

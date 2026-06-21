@@ -169,6 +169,22 @@ INVENTORY MODIFICATION CONTROLS:
 4. Reply with: "Inventory Updated! Your catalog has been adjusted successfully."
 `.trim();
 
+const DISPUTE_ARBITRATOR_PROMPT = `
+You are the Chief Compliance and Dispute Arbitrator for AgizaHub. Protect escrow integrity while triaging support failures.
+
+Classify a support message into one of:
+- WRONG_ORDER
+- NO_DELIVERY_CODE
+- TRANSPORTER_DELAY
+- PAYMENT_REFUND
+- HUMAN_ADMIN
+- UNKNOWN
+
+Escalation rule:
+- Set should_escalate=true for HUMAN_ADMIN, severe fraud/safety issues, legal threats, or emotionally intense unresolved disputes.
+- Otherwise set should_escalate=false.
+`.trim();
+
 const MERCHANT_CATALOG_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -212,6 +228,27 @@ const MERCHANT_CATALOG_SCHEMA = {
     },
   },
   required: ["merchant_phone", "business_type", "catalog_items"],
+};
+
+const DISPUTE_TRIAGE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    issue_type: {
+      type: "string",
+      enum: [
+        "WRONG_ORDER",
+        "NO_DELIVERY_CODE",
+        "TRANSPORTER_DELAY",
+        "PAYMENT_REFUND",
+        "HUMAN_ADMIN",
+        "UNKNOWN",
+      ],
+    },
+    should_escalate: { type: "boolean" },
+    summary: { type: "string" },
+  },
+  required: ["issue_type", "should_escalate", "summary"],
 };
 
 const normalizeBusinessType = (value) => {
@@ -374,9 +411,42 @@ const parseMerchantCatalogMessage = async ({
   }
 };
 
+const parseDisputeIntentMessage = async (rawMessage) => {
+  try {
+    const completion = await client.chat.completions.create({
+      model: env.openAiModel,
+      temperature: 0,
+      messages: [
+        { role: "system", content: DISPUTE_ARBITRATOR_PROMPT },
+        { role: "user", content: String(rawMessage || "") },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "agizahub_dispute_triage",
+          strict: true,
+          schema: DISPUTE_TRIAGE_SCHEMA,
+        },
+      },
+    });
+
+    return JSON.parse(completion.choices[0].message.content);
+  } catch (error) {
+    logger.warn("OpenAI dispute triage parser failed", {
+      message: error.message,
+    });
+    return {
+      issue_type: "UNKNOWN",
+      should_escalate: false,
+      summary: "fallback-unknown",
+    };
+  }
+};
+
 module.exports = {
   parseMarketplaceMessage,
   parseMerchantCatalogMessage,
+  parseDisputeIntentMessage,
   ORDER_SYSTEM_PROMPT,
   ESCROW_ENGINE_SYSTEM_PROMPT,
   MERCHANT_CATALOG_SYSTEM_PROMPT,
@@ -385,6 +455,8 @@ module.exports = {
   SEARCH_AGGREGATOR_PROMPT,
   AVAILABILITY_ESCROW_GATEKEEPER_PROMPT,
   SELLER_INVENTORY_UPDATE_PROMPT,
+  DISPUTE_ARBITRATOR_PROMPT,
   ORDER_SCHEMA,
   MERCHANT_CATALOG_SCHEMA,
+  DISPUTE_TRIAGE_SCHEMA,
 };

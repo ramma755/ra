@@ -100,9 +100,39 @@ const sendTransporterTimeoutAlert = async (event) => {
   });
 };
 
+const sendDisputeEscalationAlert = async ({
+  orderId,
+  issueType,
+  reporterPhone,
+  note,
+  payload,
+}) => {
+  const channel = env.admin.alertChannel || "WHATSAPP";
+  const destination =
+    env.admin.whatsappPhone || env.admin.alertFallbackDestination || "admin-dashboard";
+
+  const messageText = [
+    "PRIORITY SUPPORT ESCALATION",
+    "--------------------------",
+    `Order: #${orderId || "N/A"}`,
+    `Issue: ${issueType}`,
+    `Reporter: ${reporterPhone || "unknown"}`,
+    `Note: ${note || "n/a"}`,
+  ].join("\n");
+
+  await queueAdminAlert({
+    templateKey: "DISPUTE_ESCALATION",
+    channel,
+    destination,
+    messageText,
+    payload: payload || { orderId, issueType, reporterPhone, note },
+  });
+};
+
 module.exports = {
   sendOpsAlert,
   queueAdminAlert,
   buildTransporterTimeoutAlert,
   sendTransporterTimeoutAlert,
+  sendDisputeEscalationAlert,
 };

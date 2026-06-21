@@ -5,6 +5,7 @@ const env = require("../config/env");
 const {
   parseMarketplaceMessage,
   parseMerchantCatalogMessage,
+  parseDisputeIntentMessage,
 } = require("../services/aiParserService");
 const { initiateStkPush, normalizeMsisdn } = require("../services/darajaService");
 const {
@@ -39,6 +40,7 @@ const {
   listQueuedJobsForDriver,
   claimBroadcastJob,
 } = require("../services/transportBroadcastService");
+const { sendDisputeEscalationAlert } = require("../services/alertService");
 const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
@@ -206,6 +208,60 @@ const transportVehicleMenu = () =>
     "3 - Canter / Truck (bulk load / 3+ tonnes)",
   ].join("\n");
 
+const helpCenterMenu = () =>
+  [
+    "AGIZAHUB HELP CENTER",
+    "How can we assist you today?",
+    "",
+    "Reply with 1, 2, 3, 4, or 5:",
+    "1 - Wrong Order Delivered",
+    "2 - No Delivery Code Sent",
+    "3 - Transporter Delay",
+    "4 - Payment / Refund Request",
+    "5 - Talk to Human Admin",
+  ].join("\n");
+
+const helpCenterInteractiveList = () => ({
+  title: "AgizaHub Help Center",
+  body: "Select an issue category to continue.",
+  buttonText: "Choose issue",
+  sections: [
+    {
+      title: "Support options",
+      rows: [
+        {
+          id: "help_option_1",
+          title: "Wrong Order Delivered",
+          description: "Items delivered do not match what was ordered",
+        },
+        {
+          id: "help_option_2",
+          title: "No Delivery Code Sent",
+          description: "Payment confirmed but delivery token missing",
+        },
+        {
+          id: "help_option_3",
+          title: "Transporter Delay",
+          description: "Driver is unresponsive or heavily delayed",
+        },
+        {
+          id: "help_option_4",
+          title: "Payment / Refund Request",
+          description: "Cancel escrow or request payment support",
+        },
+        {
+          id: "help_option_5",
+          title: "Talk to Human Admin",
+          description: "Escalate this conversation to AgizaHub admin",
+        },
+      ],
+    },
+  ],
+});
+
+const locationCollectionPrompt = (label) =>
+  `${label}\nTip: Share WhatsApp location pin (Attach -> Location) or send coordinates as latitude,longitude.`;
+
 const parseCoordinates = (input) => {
   const parts = String(input || "").split(",");
   if (parts.length < 2) return null;
@@ -218,6 +274,52 @@ const parseCoordinates = (input) => {
     longitude: Number(longitude.toFixed(6)),
   };
 };
+
+const parseHelpOption = (rawMessage) => {
+  const trimmed = String(rawMessage || "").trim();
+  const rowMatch = trimmed.match(/^help_option_(\d)$/i);
+  if (rowMatch) return rowMatch[1];
+  const numberMatch = trimmed.match(/^([1-5])$/);
+  if (numberMatch) return numberMatch[1];
+  return null;
+};
+
+const coerceCoordinates = ({ rawMessage, inboundLocation }) => {
+  if (
+    inboundLocation &&
+    Number.isFinite(Number(inboundLocation.latitude)) &&
+    Number.isFinite(Number(inboundLocation.longitude))
+  ) {
+    return {
+      latitude: Number(Number(inboundLocation.latitude).toFixed(6)),
+      longitude: Number(Number(inboundLocation.longitude).toFixed(6)),
+      source: "whatsapp-location-pin",
+    };
+  }
+  const parsed = parseCoordinates(rawMessage);
+  if (parsed) {
+    return {
+      ...parsed,
+      source: "text-coordinates",
+    };
+  }
+  return null;
+};
+
+const buildGoogleMapsDirectionsLink = ({ originLat, originLng, destinationLat, destinationLng }) => {
+  if (
+    !Number.isFinite(Number(originLat)) ||
+    !Number.isFinite(Number(originLng)) ||
+    !Number.isFinite(Number(destinationLat)) ||
+    !Number.isFinite(Number(destinationLng))
+  ) {
+    return null;
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destinationLat},${destinationLng}&travelmode=driving`;
+};
+
+const emotionalEscalationPattern =
+  /(fraud|scam|police|court|lawyer|sue|angry|furious|stolen|threat|urgent|emergency|human admin|talk to admin)/i;
 
 const normalizeOrderIdFromText = (text) => (text || "").trim();
 
@@ -688,6 +790,377 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
   return null;
 };
 
+const mapDisputeIssueToHelpOption = (issueType) => {
+  if (issueType === "WRONG_ORDER") return "1";
+  if (issueType === "NO_DELIVERY_CODE") return "2";
+  if (issueType === "TRANSPORTER_DELAY") return "3";
+  if (issueType === "PAYMENT_REFUND") return "4";
+  if (issueType === "HUMAN_ADMIN") return "5";
+  return null;
+};
+
+const resolveSupportOrderForUser = async ({ user, senderPhone, explicitOrderId }) => {
+  const orderId = explicitOrderId ? normalizeOrderIdFromText(explicitOrderId) : null;
+  const buyerQuery = `
+    SELECT *
+    FROM orders
+    WHERE (buyer_masked_id = $1 OR buyer_phone = $2)
+      AND ($3::text IS NULL OR id::text = $3)
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const supplierQuery = `
+    SELECT *
+    FROM orders
+    WHERE supplier_masked_id = $1
+      AND ($2::text IS NULL OR id::text = $2)
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const transporterQuery = `
+    SELECT *
+    FROM orders
+    WHERE transporter_masked_id = $1
+      AND ($2::text IS NULL OR id::text = $2)
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+
+  let result;
+  if (user.user_type === "BUYER" || !user.user_type) {
+    result = await query(buyerQuery, [user.masked_id || null, senderPhone, orderId]);
+  } else if (user.user_type === "SUPPLIER") {
+    result = await query(supplierQuery, [user.masked_id, orderId]);
+  } else {
+    result = await query(transporterQuery, [user.masked_id, orderId]);
+  }
+  return result.rows[0] || null;
+};
+
+const escalateSupportCase = async ({
+  user,
+  issueType,
+  senderPhone,
+  order,
+  note,
+  freezeThread = false,
+}) => {
+  await query(
+    `
+      UPDATE platform_users
+      SET requires_admin_intervention = TRUE,
+          bot_thread_frozen = $2,
+          current_step = CASE WHEN $2 THEN 'AWAITING_ADMIN_INTERVENTION' ELSE 'COMPLETED' END,
+          support_ticket_context = $3,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [
+      user.id,
+      Boolean(freezeThread),
+      JSON.stringify({
+        issueType,
+        note: note || null,
+        orderId: order?.id || null,
+        createdAt: new Date().toISOString(),
+      }),
+    ]
+  );
+
+  if (order?.id) {
+    await query(
+      `
+        UPDATE orders
+        SET requires_admin_intervention = TRUE,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [order.id]
+    );
+  }
+
+  await sendDisputeEscalationAlert({
+    orderId: order?.id || null,
+    issueType,
+    reporterPhone: senderPhone,
+    note,
+    payload: {
+      issueType,
+      senderPhone,
+      userMaskedId: user.masked_id,
+      userType: user.user_type,
+      orderId: order?.id || null,
+    },
+  });
+};
+
+const freezeOrderAsDisputed = async ({ orderId, reason }) => {
+  await query(
+    `
+      UPDATE orders
+      SET settlement_status =
+            CASE
+              WHEN payment_status IN ('PAID_HELD', 'REFUND_REQUESTED') THEN 'DISPUTED_HOLD'
+              ELSE settlement_status
+            END,
+          distribution_status =
+            CASE
+              WHEN payment_status IN ('PAID_HELD', 'REFUND_REQUESTED') THEN 'DISPUTED_HOLD'
+              ELSE distribution_status
+            END,
+          dispute_reason = COALESCE($2, dispute_reason, 'Support dispute raised'),
+          requires_admin_intervention = TRUE,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [orderId, reason || null]
+  );
+};
+
+const resolveNavigationLinkForOrder = async ({ orderId }) => {
+  const orderResult = await query(
+    `
+      SELECT
+        o.id,
+        o.order_type,
+        o.parsed_payload,
+        s.hub_latitude AS supplier_latitude,
+        s.hub_longitude AS supplier_longitude,
+        b.delivery_latitude AS buyer_latitude,
+        b.delivery_longitude AS buyer_longitude
+      FROM orders o
+      LEFT JOIN platform_users s ON s.masked_id = o.supplier_masked_id
+      LEFT JOIN platform_users b ON b.masked_id = o.buyer_masked_id
+      WHERE o.id = $1
+      LIMIT 1
+    `,
+    [orderId]
+  );
+  if (orderResult.rowCount === 0) return null;
+  const row = orderResult.rows[0];
+
+  let originLat = row.supplier_latitude;
+  let originLng = row.supplier_longitude;
+  let destinationLat = row.buyer_latitude;
+  let destinationLng = row.buyer_longitude;
+
+  if (row.order_type === "TRANSPORT_ONLY") {
+    const payload = row.parsed_payload || {};
+    originLat = payload.pickupLat ?? payload.pickup_lat ?? originLat;
+    originLng = payload.pickupLng ?? payload.pickup_lng ?? originLng;
+    destinationLat = payload.dropoffLat ?? payload.dropoff_lat ?? destinationLat;
+    destinationLng = payload.dropoffLng ?? payload.dropoff_lng ?? destinationLng;
+  }
+
+  return buildGoogleMapsDirectionsLink({
+    originLat,
+    originLng,
+    destinationLat,
+    destinationLng,
+  });
+};
+
+const processHelpSelection = async ({ user, senderPhone, rawMessage, explicitOrderId = null }) => {
+  let option = parseHelpOption(rawMessage);
+  let aiTriage = null;
+  if (!option) {
+    aiTriage = await parseDisputeIntentMessage(rawMessage);
+    option = mapDisputeIssueToHelpOption(aiTriage.issue_type);
+  }
+
+  if (!option) {
+    return {
+      message: `Please select one help option from the list.\n\n${helpCenterMenu()}`,
+      interactiveList: helpCenterInteractiveList(),
+    };
+  }
+
+  const latestOrder = await resolveSupportOrderForUser({
+    user,
+    senderPhone,
+    explicitOrderId,
+  });
+
+  if (option === "1") {
+    if (!latestOrder) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        message:
+          "No recent order found. Send your Order ID (example: support <order-id>) and we'll open an investigation.",
+      };
+    }
+
+    await freezeOrderAsDisputed({
+      orderId: latestOrder.id,
+      reason: "Wrong order dispute raised by customer",
+    });
+    await escalateSupportCase({
+      user,
+      issueType: "WRONG_ORDER",
+      senderPhone,
+      order: latestOrder,
+      note: "Customer reports wrong order delivered.",
+    });
+
+    return {
+      message: [
+        `Order #${latestOrder.id.slice(0, 8)} moved to DISPUTED_HOLD.`,
+        "Please upload a clear photo of delivered goods for admin inspection.",
+      ].join("\n"),
+      freezeThread: false,
+    };
+  }
+
+  if (option === "2") {
+    if (!latestOrder) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return { message: "No recent order found for delivery-code recovery." };
+    }
+    if (latestOrder.payment_status === "PENDING_PAYMENT") {
+      return {
+        message:
+          "We have not received your payment confirmation yet. Check your phone for an STK prompt and complete payment first.",
+      };
+    }
+    if (!["PAID_HELD", "REFUND_REQUESTED"].includes(latestOrder.payment_status)) {
+      return {
+        message: `Order #${latestOrder.id.slice(0, 8)} is not in active escrow state for code recovery.`,
+      };
+    }
+    if (latestOrder.settlement_status === "COMPLETED") {
+      return {
+        message: `Order #${latestOrder.id.slice(0, 8)} is already completed and released.`,
+      };
+    }
+
+    const { otp, otpHash } = await generateEscrowToken();
+    await query(
+      `
+        UPDATE orders
+        SET otp_code_hash = $2,
+            otp_expires_at = NOW() + INTERVAL '12 hours',
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [latestOrder.id, otpHash]
+    );
+
+    return {
+      message: [
+        `Delivery code regenerated for order #${latestOrder.id.slice(0, 8)}: ${otp}`,
+        "Do NOT share this code until goods are received and verified.",
+      ].join("\n"),
+      freezeThread: false,
+    };
+  }
+
+  if (option === "3") {
+    if (!latestOrder) {
+      return { message: "No active order found for transporter delay support." };
+    }
+    await freezeOrderAsDisputed({
+      orderId: latestOrder.id,
+      reason: "Transporter delay escalated by customer",
+    });
+    await escalateSupportCase({
+      user,
+      issueType: "TRANSPORTER_DELAY",
+      senderPhone,
+      order: latestOrder,
+      note: "Driver delay/unresponsive complaint.",
+    });
+    return {
+      message: `Delay ticket opened for order #${latestOrder.id.slice(0, 8)}. Admin is reviewing and may rematch transporter.`,
+      freezeThread: false,
+    };
+  }
+
+  if (option === "4") {
+    if (!latestOrder) {
+      return { message: "No paid order found for refund processing." };
+    }
+    if (user.user_type !== "BUYER") {
+      await escalateSupportCase({
+        user,
+        issueType: "PAYMENT_REFUND",
+        senderPhone,
+        order: latestOrder,
+        note: "Non-buyer refund inquiry escalated for admin handling.",
+      });
+      return {
+        message:
+          "Refund and payment reversals are approved for buyers only. Admin has been notified to assist.",
+      };
+    }
+    const transporterArrived =
+      latestOrder.release_requested_at != null ||
+      ["AWAITING_RELEASE", "COMPLETED"].includes(latestOrder.settlement_status);
+    if (transporterArrived) {
+      await escalateSupportCase({
+        user,
+        issueType: "PAYMENT_REFUND",
+        senderPhone,
+        order: latestOrder,
+        note: "Refund requested after transporter arrival; requires manual inspection.",
+      });
+      return {
+        message:
+          "Your refund request was escalated to admin for manual inspection because delivery has already progressed.",
+        freezeThread: false,
+      };
+    }
+
+    await requestOrderRefund({
+      orderId: latestOrder.id,
+      buyerMaskedId: user.user_type === "BUYER" ? user.masked_id : null,
+      buyerPhone: senderPhone,
+      reason: "Help center refund request",
+    });
+    await escalateSupportCase({
+      user,
+      issueType: "PAYMENT_REFUND",
+      senderPhone,
+      order: latestOrder,
+      note: "Refund workflow initiated from Help Center.",
+    });
+    return {
+      message:
+        "Refund request submitted. Escrow is frozen while admin validates network and transfer fees.",
+      freezeThread: false,
+    };
+  }
+
+  await escalateSupportCase({
+    user,
+    issueType: "HUMAN_ADMIN",
+    senderPhone,
+    order: latestOrder,
+    note: aiTriage?.summary || "User requested human admin support.",
+    freezeThread: true,
+  });
+  return {
+    message:
+      "A human admin has been notified. This chat thread is now paused for manual review.",
+    freezeThread: true,
+  };
+};
+
 const formatCheckoutSummary = ({
   quantity,
   commodityName,
@@ -1146,7 +1619,7 @@ const createTransportOnlyOrder = async ({
     };
   });
 
-const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
+const processTransportFlowStep = async ({ user, rawMessage, senderPhone, inboundLocation }) => {
   const trimmed = rawMessage.trim();
 
   if (user.current_step === "TRANSPORT_CATEGORY") {
@@ -1164,7 +1637,9 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
       `,
       [user.id, JSON.stringify({ category })]
     );
-    return "Where are the items being picked up? Share town name or coordinates (lat,lng).";
+    return locationCollectionPrompt(
+      "Where are the items being picked up? Share town name or coordinates."
+    );
   }
 
   let payload = user.pending_transport_payload || {};
@@ -1177,10 +1652,13 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
   }
 
   if (user.current_step === "TRANSPORT_PICKUP") {
-    const coords = parseCoordinates(trimmed);
+    const coords = coerceCoordinates({ rawMessage: trimmed, inboundLocation });
     payload = {
       ...payload,
-      pickupLabel: trimmed,
+      pickupLabel:
+        coords && trimmed === "__location_shared__"
+          ? `Pinned pickup (${coords.latitude},${coords.longitude})`
+          : trimmed,
       pickupLat: coords ? coords.latitude : null,
       pickupLng: coords ? coords.longitude : null,
     };
@@ -1194,14 +1672,19 @@ const processTransportFlowStep = async ({ user, rawMessage, senderPhone }) => {
       `,
       [user.id, JSON.stringify(payload)]
     );
-    return "Where are the items going? Share destination town or coordinates (lat,lng).";
+    return locationCollectionPrompt(
+      "Where are the items going? Share destination town or coordinates."
+    );
   }
 
   if (user.current_step === "TRANSPORT_DROPOFF") {
-    const coords = parseCoordinates(trimmed);
+    const coords = coerceCoordinates({ rawMessage: trimmed, inboundLocation });
     payload = {
       ...payload,
-      dropoffLabel: trimmed,
+      dropoffLabel:
+        coords && trimmed === "__location_shared__"
+          ? `Pinned drop-off (${coords.latitude},${coords.longitude})`
+          : trimmed,
       dropoffLat: coords ? coords.latitude : null,
       dropoffLng: coords ? coords.longitude : null,
     };
@@ -2120,7 +2603,7 @@ const nextStepAfterPaymentSelection = (userType) => {
   return "COMPLETED";
 };
 
-const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
+const processOnboardingStep = async ({ user, rawMessage, senderPhone, inboundLocation }) => {
   const trimmed = rawMessage.trim();
 
   return transaction(async (client) => {
@@ -2193,13 +2676,17 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
           ]
         );
         if (nextStep === "AWAITING_BUYER_LOCATION") {
-          return "Send your delivery location coordinates as: latitude,longitude (example: -1.286389,36.817223)";
+          return locationCollectionPrompt(
+            "Send your delivery location coordinates (example: -1.286389,36.817223)."
+          );
         }
         if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
           return supplierBusinessTypeMenu();
         }
         if (nextStep === "AWAITING_SUPPLIER_HUB") {
-          return "Send your supplier hub coordinates as: latitude,longitude (example: -0.727322,36.429387)";
+          return locationCollectionPrompt(
+            "Send your supplier hub coordinates (example: -0.727322,36.429387)."
+          );
         }
         if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
           return "Set your service corridor/town (example: Nairobi Eastlands). You can later change with: corridor <name>.";
@@ -2255,13 +2742,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         [user.id, till, nextStep, defaultTransporterVehicleType(user.user_type)]
       );
       if (nextStep === "AWAITING_BUYER_LOCATION") {
-        return "Now send buyer delivery coordinates: latitude,longitude";
+        return locationCollectionPrompt("Now send buyer delivery coordinates.");
       }
       if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
         return supplierBusinessTypeMenu();
       }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
-        return "Now send supplier hub coordinates: latitude,longitude";
+        return locationCollectionPrompt("Now send supplier hub coordinates.");
       }
       if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
         return "Set your service corridor/town (example: Nairobi Eastlands).";
@@ -2300,13 +2787,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
         ]
       );
       if (nextStep === "AWAITING_BUYER_LOCATION") {
-        return "Now send buyer delivery coordinates: latitude,longitude";
+        return locationCollectionPrompt("Now send buyer delivery coordinates.");
       }
       if (nextStep === "AWAITING_SUPPLIER_BUSINESS_TYPE") {
         return supplierBusinessTypeMenu();
       }
       if (nextStep === "AWAITING_SUPPLIER_HUB") {
-        return "Now send supplier hub coordinates: latitude,longitude";
+        return locationCollectionPrompt("Now send supplier hub coordinates.");
       }
       if (nextStep === "AWAITING_TRANSPORTER_CORRIDOR") {
         return "Set your service corridor/town (example: Nairobi Eastlands).";
@@ -2318,9 +2805,9 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
     }
 
     if (user.current_step === "AWAITING_BUYER_LOCATION") {
-      const coords = parseCoordinates(trimmed);
+      const coords = coerceCoordinates({ rawMessage: trimmed, inboundLocation });
       if (!coords) {
-        return "Invalid location format. Use: latitude,longitude";
+        return locationCollectionPrompt("Invalid location format. Please resend your buyer location.");
       }
       await client.query(
         `
@@ -2358,9 +2845,11 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone }) => {
     }
 
     if (user.current_step === "AWAITING_SUPPLIER_HUB") {
-      const coords = parseCoordinates(trimmed);
+      const coords = coerceCoordinates({ rawMessage: trimmed, inboundLocation });
       if (!coords) {
-        return "Invalid location format. Use: latitude,longitude";
+        return locationCollectionPrompt(
+          "Invalid location format. Please resend your supplier hub location."
+        );
       }
       await client.query(
         `
@@ -2507,6 +2996,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       communicationPhone,
       senderPhone,
       senderName,
+      inboundLocation,
     } = inbound;
     const lowerMessage = rawMessage.toLowerCase();
 
@@ -2568,7 +3058,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         senderPhone,
         message:
           nextStep === "AWAITING_SUPPLIER_HUB"
-            ? "Agreement accepted. Send supplier hub coordinates as: latitude,longitude"
+            ? locationCollectionPrompt("Agreement accepted. Send supplier hub coordinates.")
             : "Agreement accepted. Store active. Add catalog with: Item, Price",
       });
     }
@@ -2579,6 +3069,117 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message: merchantAgreementMessage(),
+      });
+    }
+
+    if (/^support\s+([a-zA-Z0-9-]+)/i.test(rawMessage)) {
+      const match = rawMessage.match(/^support\s+([a-zA-Z0-9-]+)/i);
+      const supportOrderId = normalizeOrderIdFromText(match[1]);
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_HELP_SELECTION',
+              support_ticket_context = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [
+          user.id,
+          JSON.stringify({
+            orderId: supportOrderId,
+            source: "support-command",
+          }),
+        ]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Support context loaded for order #${supportOrderId.slice(0, 8)}.\n\n${helpCenterMenu()}`,
+        interactiveList: helpCenterInteractiveList(),
+      });
+    }
+
+    if (lowerMessage === "help" || lowerMessage === "/help") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_HELP_SELECTION',
+              support_ticket_context = '{}'::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: helpCenterMenu(),
+        interactiveList: helpCenterInteractiveList(),
+      });
+    }
+
+    if (user.bot_thread_frozen && user.current_step !== "AWAITING_HELP_SELECTION") {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "Your case is currently with a human admin reviewer. Type help to view support options again.",
+      });
+    }
+
+    if (user.current_step === "AWAITING_HELP_SELECTION") {
+      let supportContext = user.support_ticket_context || {};
+      if (typeof supportContext === "string") {
+        try {
+          supportContext = JSON.parse(supportContext);
+        } catch (_error) {
+          supportContext = {};
+        }
+      }
+      const support = await processHelpSelection({
+        user,
+        senderPhone,
+        rawMessage,
+        explicitOrderId: supportContext.orderId || null,
+      });
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = CASE WHEN $2 THEN 'AWAITING_ADMIN_INTERVENTION' ELSE 'COMPLETED' END,
+              support_ticket_context = CASE WHEN $2 THEN support_ticket_context ELSE '{}'::jsonb END,
+              bot_thread_frozen = CASE WHEN $2 THEN TRUE ELSE FALSE END,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id, Boolean(support.freezeThread)]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: support.message,
+        interactiveList: support.interactiveList || null,
+      });
+    }
+
+    if (emotionalEscalationPattern.test(rawMessage)) {
+      await escalateSupportCase({
+        user,
+        issueType: "HUMAN_ADMIN",
+        senderPhone,
+        order: null,
+        note: "Emotion/risk keyword detected in message.",
+        freezeThread: true,
+      });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "Your message has been escalated to a human admin for immediate review. We have paused bot automation on this thread.",
       });
     }
 
@@ -2869,6 +3470,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         user,
         rawMessage,
         senderPhone,
+        inboundLocation,
       });
       return respondToUser({
         res,
@@ -2900,6 +3502,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         user,
         rawMessage,
         senderPhone,
+        inboundLocation,
       });
       return respondToUser({
         res,
@@ -3307,11 +3910,15 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         orderId: normalizeOrderIdFromText(claimMatch[1]),
         driverMaskedId: user.masked_id,
       });
+      const navLink = await resolveNavigationLinkForOrder({ orderId: claim.id });
+      const navText = navLink
+        ? `\nNavigation: ${navLink}`
+        : "\nNavigation link unavailable (missing location coordinates).";
       return respondToUser({
         res,
         provider,
         senderPhone,
-        message: `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}. Await payment + customer escrow code.`,
+        message: `Claimed #${claim.id}. Route: ${claim.pickup_location_label} -> ${claim.delivery_location}.${navText}\nAwait payment + customer escrow code.`,
       });
     }
 

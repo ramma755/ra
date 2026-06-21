@@ -202,6 +202,8 @@ Transport charge engine for buyer checkout:
   - Primary: Google Distance Matrix API (driving distance)
   - Fallback: internal Haversine calculation when Google API is not configured/unavailable
   - Cached: repeat routes reuse DB cache (`route_distance_cache`) to reduce API cost/latency
+  - Native location pins: onboarding + transport flows now accept WhatsApp shared locations directly
+  - Navigation links: when a transporter claims a job, bot returns a Google Maps driving route link if coordinates exist
 
 Transport-only mode (no supplier involved):
 
@@ -234,6 +236,12 @@ Supplier catalog intake:
   - `2` AgizaHub matching (bot asks vehicle `1/2/3/4` then broadcasts only after selection)
 - if seller reports out-of-stock, buyer receives alternative sellers ranked by location then price
 - buyer can search marketplace with `search <item>` and select seller row IDs (`search_select_<catalog>_<seller>`)
+- support/help center:
+  - `help` or `/help` opens numbered support menu (wrong order, missing code, transporter delay, refund, human admin)
+  - option 1 auto-freezes escrow to `DISPUTED_HOLD` and alerts admin
+  - option 2 auto-regenerates `AGZ-XXXXXX` token for active paid escrow orders
+  - option 4 starts refund flow for eligible unpaid-delivery disputes, else escalates to admin
+  - option 5 escalates and freezes bot thread for human review (`AWAITING_ADMIN_INTERVENTION`)
 - catalog submission supports:
   - quick line: `Item Name, 1200`
   - multi-line menu/list text (AI parser converts to structured entries)
@@ -251,6 +259,7 @@ AI prompts added in code:
   - `SEARCH_AGGREGATOR_PROMPT`
   - `AVAILABILITY_ESCROW_GATEKEEPER_PROMPT`
   - `SELLER_INVENTORY_UPDATE_PROMPT`
+  - `DISPUTE_ARBITRATOR_PROMPT`
 
 ---
 
