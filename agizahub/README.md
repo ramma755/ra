@@ -342,3 +342,28 @@ Expected outcome:
 - Daily reconciliation job active
 - Encrypt sensitive data at rest
 - Principle of least privilege for DB/API credentials
+- Webhook security:
+  - WAHA inbound key auth (`WAHA_WEBHOOK_SECRET` or gateway API key fallback)
+  - Daraja callback source-IP whitelist (`DARAJA_ENFORCE_IP_WHITELIST=true`, `DARAJA_ALLOWED_IPS=ip1,ip2,cidr`)
+  - inbound webhook request logging to `webhook_request_logs`
+- API perimeter:
+  - HTTPS-only enforcement in production (`BLOCK_NON_HTTPS_REQUESTS=true`)
+  - CORS allowlist support (`CORS_ALLOWED_ORIGINS=https://yourapp.com,https://admin.yourapp.com`)
+- Abuse prevention:
+  - per-phone flood guard (`MAX_MESSAGES_PER_PHONE_PER_MINUTE`, `MUTE_MINUTES_ON_FLOOD`)
+  - auto-ban on repeated abuse (`AUTO_BAN_AFTER_VIOLATIONS`, `BAN_MINUTES`)
+  - sender state persisted in `sender_abuse_controls`
+- Admin security:
+  - admin phone whitelist (`ADMIN_WHATSAPP_PHONE` / `ADMIN_WHATSAPP_PHONES`)
+  - token-based privileged session (`ADMIN_REQUIRE_TOKEN=true`)
+  - commands:
+    - `admin token` (issue 4-digit code)
+    - `verify <code>` (start privileged session)
+    - `logout` (end session)
+    - `unban <phone>` (clear abuse block)
+- Registration security:
+  - phone-owner OTP gate on first contact (4-digit verification before onboarding)
+- Payment integrity:
+  - callback amount mismatch detection (expected STK amount vs callback amount)
+  - duplicate `MpesaReceiptNumber` replay blocking
+  - max per-order and rolling daily buyer cap (`MAX_ORDER_AMOUNT_KES`, `MAX_DAILY_AMOUNT_KES_PER_BUYER`)

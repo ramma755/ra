@@ -42,6 +42,17 @@ const {
 } = require("../services/transportBroadcastService");
 const { extractCatalogTextFromInboundMedia } = require("../services/catalogIngestionService");
 const { sendDisputeEscalationAlert } = require("../services/alertService");
+const {
+  registerSenderMessage,
+  clearSenderBlocks,
+  incrementSenderFailure,
+} = require("../services/abusePreventionService");
+const {
+  issueAdminAccessToken,
+  verifyAdminAccessToken,
+  isAdminSessionActive,
+  revokeAdminSession,
+} = require("../services/adminTokenService");
 const logger = require("../services/logger");
 
 const twimlResponse = (message) =>
@@ -381,6 +392,21 @@ const buildGoogleMapsDirectionsLink = ({ originLat, originLng, destinationLat, d
 const emotionalEscalationPattern =
   /(fraud|scam|police|court|lawyer|sue|angry|furious|stolen|threat|urgent|emergency|human admin|talk to admin)/i;
 
+const adminTokenRequestPattern = /^(?:admin\s+(?:token|otp|login)|token)$/i;
+const adminTokenVerifyPattern = /^(?:verify|code)\s+(\d{4})$/i;
+const adminLogoutPattern = /^(?:admin\s+logout|logout)$/i;
+const adminUnmutePattern = /^(?:unmute|unban)\s+(\+?\d{9,15})$/i;
+const adminAcknowledgeText = () =>
+  `Admin acknowledged: ${env.admin.name}. I am ready to execute privileged commands.`;
+
+const normalizeIncomingMessageText = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
+
 const merchantAgreementAcceptPattern = /^(?:i\s+agree|nakubali(?:\s+masharti)?)$/i;
 const termsCommandPattern = /^(?:terms|masharti|vigezo|kanuni)$/i;
 const supportOrderPattern = /^(?:support|msaada|tiketi)\s+([a-zA-Z0-9-]+)/i;
@@ -502,6 +528,12 @@ const maskBuyerPhone = (phone) => {
 
 const generateEscrowToken = async () => {
   const otp = `AGZ-${crypto.randomInt(0, 1000000).toString().padStart(6, "0")}`;
+  const otpHash = await bcrypt.hash(otp, 10);
+  return { otp, otpHash };
+};
+
+const generateRegistrationOtp = async () => {
+  const otp = crypto.randomInt(0, 10000).toString().padStart(4, "0");
   const otpHash = await bcrypt.hash(otp, 10);
   return { otp, otpHash };
 };
@@ -1177,11 +1209,21 @@ const buildSearchQuantityPrompt = ({ row }) =>
   ].join("\n");
 
 const isAdminPhone = (communicationPhone, senderPhone) => {
-  const configured = (env.admin.whatsappPhone || "").trim();
-  if (!configured) return false;
-  if (configured === communicationPhone) return true;
-  const configuredDigits = normalizeMsisdn(configured.replace("whatsapp:+", ""));
-  return configuredDigits && configuredDigits === senderPhone;
+  const configuredPhones = Array.isArray(env.admin.whatsappPhones)
+    ? env.admin.whatsappPhones
+    : [];
+  if (configuredPhones.length === 0) return false;
+
+  const normalizedSender = normalizeMsisdn(senderPhone || "");
+  const normalizedCommunication = String(communicationPhone || "").trim();
+
+  return configuredPhones.some((configured) => {
+    const raw = String(configured || "").trim();
+    if (!raw) return false;
+    if (raw === normalizedCommunication) return true;
+    const digits = normalizeMsisdn(raw.replace("whatsapp:+", ""));
+    return digits && digits === normalizedSender;
+  });
 };
 
 const handleAdminCommand = async (rawMessage, senderPhone) => {
@@ -1216,6 +1258,13 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     await rejectRefundByAdmin({ orderId, actorPhone: senderPhone });
     await releaseOrderByAdmin({ orderId, actorPhone: senderPhone });
     return `Refund rejected for #${orderId}. Standard payouts released.`;
+  }
+
+  const unmuteMatch = rawMessage.match(adminUnmutePattern);
+  if (unmuteMatch) {
+    const targetPhone = normalizeMsisdn(unmuteMatch[1]);
+    await clearSenderBlocks({ phoneNumber: targetPhone });
+    return `Security block cleared for ${targetPhone}.`;
   }
 
   return null;
@@ -2821,6 +2870,35 @@ const confirmPendingOrderPayment = async ({ user, senderPhone }) =>
       };
     }
 
+    const amountKes = Number(order.total_amount_kes || 0);
+    if (amountKes > Number(env.security.maxOrderAmountKes || 0)) {
+      throw new Error(
+        `Order amount exceeds per-order limit (KSh ${Number(
+          env.security.maxOrderAmountKes || 0
+        ).toLocaleString()})`
+      );
+    }
+
+    const dailyLimit = Number(env.security.maxDailyAmountKesPerBuyer || 0);
+    if (dailyLimit > 0) {
+      const dailyResult = await client.query(
+        `
+          SELECT COALESCE(SUM(total_amount_kes), 0) AS total_kes
+          FROM orders
+          WHERE created_at >= NOW() - INTERVAL '24 hours'
+            AND buyer_masked_id = $1
+            AND payment_status IN ('PENDING_PAYMENT', 'PAID_HELD', 'REFUND_REQUESTED', 'REFUNDED')
+        `,
+        [user.masked_id]
+      );
+      const dailyTotal = Number(dailyResult.rows?.[0]?.total_kes || 0);
+      if (dailyTotal + amountKes > dailyLimit) {
+        throw new Error(
+          `Daily payment cap exceeded (KSh ${dailyLimit.toLocaleString()}). Try again later or contact admin.`
+        );
+      }
+    }
+
     const transactionDesc =
       order.order_type === "TRANSPORT_ONLY"
         ? `AgizaHub Transport ${order.pickup_location_label || ""} -> ${
@@ -3397,13 +3475,14 @@ const handleIncomingWhatsapp = async (req, res, next) => {
 
     const {
       provider,
-      rawMessage,
+      rawMessage: inboundRawMessage,
       communicationPhone,
       senderPhone,
       senderName,
       inboundLocation,
       inboundMedia,
     } = inbound;
+    const rawMessage = normalizeIncomingMessageText(inboundRawMessage);
     const lowerMessage = rawMessage.toLowerCase();
 
     if (!rawMessage) {
@@ -3416,13 +3495,69 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     if (isAdminPhone(communicationPhone, senderPhone)) {
+      const trimmedAdmin = rawMessage.trim();
+
+      if (adminTokenRequestPattern.test(trimmedAdmin)) {
+        const issued = await issueAdminAccessToken({ adminPhone: senderPhone });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `${adminAcknowledgeText()}\nAdmin token: ${issued.token}\nValid for ${issued.expiresInMinutes} minutes. Reply: verify <code>`,
+        });
+      }
+
+      const verifyMatch = trimmedAdmin.match(adminTokenVerifyPattern);
+      if (verifyMatch) {
+        const verification = await verifyAdminAccessToken({
+          adminPhone: senderPhone,
+          token: verifyMatch[1],
+        });
+        if (!verification.ok) {
+          await incrementSenderFailure({ phoneNumber: senderPhone });
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: `${adminAcknowledgeText()}\nInvalid or expired token. Request a new one with: admin token`,
+          });
+        }
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `${adminAcknowledgeText()}\nVerified. Privileged session active for ${verification.verifiedForMinutes} minutes.`,
+        });
+      }
+
+      if (adminLogoutPattern.test(trimmedAdmin)) {
+        await revokeAdminSession({ adminPhone: senderPhone });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `${adminAcknowledgeText()}\nAdmin session closed.`,
+        });
+      }
+
+      const adminSessionOk =
+        !env.admin.requireToken || (await isAdminSessionActive({ adminPhone: senderPhone }));
+      if (!adminSessionOk) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `${adminAcknowledgeText()}\nFor privileged access, request token with: admin token`,
+        });
+      }
+
       const adminResponse = await handleAdminCommand(rawMessage, senderPhone);
       if (adminResponse) {
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: adminResponse,
+          message: `${adminAcknowledgeText()}\n${adminResponse}`,
         });
       }
       return respondToUser({
@@ -3430,13 +3565,128 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message:
-          "Admin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>.",
+          `${adminAcknowledgeText()}\nAdmin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>, Unban <Phone>.`,
+      });
+    }
+
+    const abuse = await registerSenderMessage({ phoneNumber: senderPhone });
+    if (!abuse.allowed) {
+      if (abuse.newlyMuted || abuse.newlyBanned) {
+        await sendDisputeEscalationAlert({
+          orderId: null,
+          issueType: "ABUSE_PREVENTION",
+          reporterPhone: senderPhone,
+          note: abuse.newlyBanned
+            ? "Auto-ban triggered after repeated flooding."
+            : "Auto-mute triggered due to message flood threshold.",
+          payload: {
+            blockedReason: abuse.blockedReason,
+            mutedUntil: abuse.mutedUntil || null,
+            bannedUntil: abuse.bannedUntil || null,
+          },
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          abuse.blockedReason === "BANNED"
+            ? "Your account is temporarily blocked due to abuse protection rules. Contact admin."
+            : "Too many messages in a short time. Please wait a few minutes before trying again.",
       });
     }
 
     const user = await transaction(async (client) =>
       ensureUserRecord(client, communicationPhone)
     );
+
+    if (!user.phone_verified) {
+      const trimmed = rawMessage.trim();
+      const otpMatch = trimmed.match(/^(\d{4})$/);
+      const expiresAt = user.registration_otp_expires_at
+        ? new Date(user.registration_otp_expires_at)
+        : null;
+      const otpActive = Boolean(
+        user.registration_otp_hash && expiresAt && Number.isFinite(expiresAt.getTime()) && expiresAt > new Date()
+      );
+
+      if (user.current_step === "AWAITING_REGISTRATION_OTP" && otpMatch && otpActive) {
+        const verified = await bcrypt.compare(otpMatch[1], user.registration_otp_hash);
+        if (verified) {
+          await query(
+            `
+              UPDATE platform_users
+              SET phone_verified = TRUE,
+                  registration_otp_hash = NULL,
+                  registration_otp_expires_at = NULL,
+                  registration_otp_attempts = 0,
+                  current_step = 'START',
+                  updated_at = NOW()
+              WHERE id = $1
+            `,
+            [user.id]
+          );
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message:
+              "Phone verification successful. Karibu AgizaHub! Reply 1/2/3/4 to choose your role and continue onboarding.",
+          });
+        }
+
+        await incrementSenderFailure({ phoneNumber: senderPhone });
+        await query(
+          `
+            UPDATE platform_users
+            SET registration_otp_attempts = registration_otp_attempts + 1,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Invalid verification code. Reply with the 4-digit OTP sent by AgizaHub (or type OTP to resend).",
+        });
+      }
+
+      const shouldResendOtp =
+        !otpActive ||
+        user.current_step !== "AWAITING_REGISTRATION_OTP" ||
+        /^(otp|verify|thibitisha|resend|tuma tena)$/i.test(trimmed);
+
+      let messageOtp = null;
+      if (shouldResendOtp) {
+        const { otp, otpHash } = await generateRegistrationOtp();
+        messageOtp = otp;
+        await query(
+          `
+            UPDATE platform_users
+            SET registration_otp_hash = $2,
+                registration_otp_expires_at = NOW() + INTERVAL '10 minutes',
+                registration_otp_attempts = 0,
+                current_step = 'AWAITING_REGISTRATION_OTP',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id, otpHash]
+        );
+      }
+
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: messageOtp
+          ? `Security check: verify this phone with OTP ${messageOtp}. It expires in 10 minutes.`
+          : "Security check pending. Reply with your 4-digit OTP to verify this phone (or type OTP to resend).",
+      });
+    }
 
     if (
       user.user_type === "SUPPLIER" &&
@@ -4430,10 +4680,20 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           message: "Use format: Deliver <OrderID> <AGZ-123456>",
         });
       }
-      await verifyOtpAndQueueRelease({
-        orderId: normalizeOrderIdFromText(deliverMatch[1]),
-        otp: deliverMatch[2].toUpperCase(),
-      });
+      try {
+        await verifyOtpAndQueueRelease({
+          orderId: normalizeOrderIdFromText(deliverMatch[1]),
+          otp: deliverMatch[2].toUpperCase(),
+        });
+      } catch (error) {
+        await incrementSenderFailure({ phoneNumber: senderPhone });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `Delivery verification failed: ${error.message}`,
+        });
+      }
       return respondToUser({
         res,
         provider,
@@ -4458,6 +4718,39 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     const { payload } = legacyResult;
+    const legacyAmount = Number(payload.order.total_amount_kes || 0);
+    if (legacyAmount > Number(env.security.maxOrderAmountKes || 0)) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Amount exceeds allowed limit (KSh ${Number(
+          env.security.maxOrderAmountKes || 0
+        ).toLocaleString()}).`,
+      });
+    }
+    if (Number(env.security.maxDailyAmountKesPerBuyer || 0) > 0) {
+      const dailyLegacy = await query(
+        `
+          SELECT COALESCE(SUM(total_amount_kes), 0) AS total_kes
+          FROM orders
+          WHERE created_at >= NOW() - INTERVAL '24 hours'
+            AND buyer_phone = $1
+            AND payment_status IN ('PENDING_PAYMENT', 'PAID_HELD', 'REFUND_REQUESTED', 'REFUNDED')
+        `,
+        [senderPhone]
+      );
+      const legacyTotal = Number(dailyLegacy.rows?.[0]?.total_kes || 0);
+      if (legacyTotal + legacyAmount > Number(env.security.maxDailyAmountKesPerBuyer || 0)) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Daily payment limit reached for this phone number. Contact admin if this is urgent.",
+        });
+      }
+    }
     const stkResponse = await initiateStkPush({
       phoneNumber: senderPhone,
       amount: payload.order.total_amount_kes,

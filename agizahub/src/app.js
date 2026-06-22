@@ -1,11 +1,14 @@
 const express = require("express");
 const routes = require("./routes");
 const logger = require("./services/logger");
+const { enforceHttpsAndCors } = require("./middleware/securityMiddleware");
 
 const app = express();
+app.set("trust proxy", true);
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+app.use(enforceHttpsAndCors);
 
 app.use("/", routes);
 

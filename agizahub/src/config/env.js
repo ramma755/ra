@@ -60,6 +60,15 @@ if (missingKeys.length > 0) {
 }
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+const parseBoolean = (value, fallback = false) => {
+  if (value == null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+};
+const parseList = (value) =>
+  String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 const parseFeeRules = (rawValue, fallback) => {
   if (!rawValue) return fallback;
   try {
@@ -198,9 +207,28 @@ module.exports = {
   },
   admin: {
     whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || "",
+    whatsappPhones: parseList(process.env.ADMIN_WHATSAPP_PHONES || process.env.ADMIN_WHATSAPP_PHONE),
+    name: process.env.ADMIN_NAME || "Admin",
+    requireToken: parseBoolean(process.env.ADMIN_REQUIRE_TOKEN, true),
+    tokenTtlMinutes: Number(process.env.ADMIN_TOKEN_TTL_MINUTES || "5"),
+    sessionTtlMinutes: Number(process.env.ADMIN_SESSION_TTL_MINUTES || "120"),
+    tokenMaxAttempts: Number(process.env.ADMIN_TOKEN_MAX_ATTEMPTS || "5"),
     alertChannel: process.env.ADMIN_ALERT_CHANNEL || "WHATSAPP",
     alertFallbackDestination:
       process.env.ADMIN_ALERT_FALLBACK_DESTINATION || "admin-dashboard",
+  },
+  security: {
+    blockNonHttpsRequests: parseBoolean(process.env.BLOCK_NON_HTTPS_REQUESTS, true),
+    corsAllowedOrigins: parseList(process.env.CORS_ALLOWED_ORIGINS),
+    webhookLogPayloads: parseBoolean(process.env.WEBHOOK_LOG_PAYLOADS, false),
+    enforceDarajaIpWhitelist: parseBoolean(process.env.DARAJA_ENFORCE_IP_WHITELIST, false),
+    darajaAllowedIps: parseList(process.env.DARAJA_ALLOWED_IPS),
+    maxMessagesPerPhonePerMinute: Number(process.env.MAX_MESSAGES_PER_PHONE_PER_MINUTE || "10"),
+    muteMinutesOnFlood: Number(process.env.MUTE_MINUTES_ON_FLOOD || "5"),
+    autoBanAfterViolations: Number(process.env.AUTO_BAN_AFTER_VIOLATIONS || "5"),
+    banMinutes: Number(process.env.BAN_MINUTES || "60"),
+    maxOrderAmountKes: Number(process.env.MAX_ORDER_AMOUNT_KES || "200000"),
+    maxDailyAmountKesPerBuyer: Number(process.env.MAX_DAILY_AMOUNT_KES_PER_BUYER || "500000"),
   },
   googleMaps: {
     apiKey: process.env.GOOGLE_MAPS_API_KEY || "",
