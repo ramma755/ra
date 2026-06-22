@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.11"
+#property version   "2.12"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -13,10 +13,13 @@ input group "Signal Settings"
 input ENUM_TIMEFRAMES SignalTF = PERIOD_CURRENT; // follows tester/chart timeframe
 input int FastEMA = 9;
 input int SlowEMA = 21;
+input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
 input int RSIPeriod = 14;
-input bool UseRSIExtremeCross = true;
-input double RSIBuyLevel = 35.0;   // buy when RSI crosses up from oversold
-input double RSISellLevel = 65.0;  // sell when RSI crosses down from overbought
+input bool UseRSIExtremeCross = false;
+input int RSISignalLookbackBars = 4; // allow RSI confirmation in recent bars
+input bool RequireRSICross = true;
+input double RSIBuyLevel = 40.0;   // used when UseRSIExtremeCross=true
+input double RSISellLevel = 60.0;  // used when UseRSIExtremeCross=true
 input double RSICenterLevel = 50.0; // fallback cross if UseRSIExtremeCross=false
 
 input group "Trend Filter (Higher Timeframe)"
@@ -257,6 +260,94 @@ bool HasOpenPositionForEA()
    return false;
 }
 
+bool CrossedAboveLevel(const double &series[], double level, int lookbackBars)
+{
+   int size = ArraySize(series);
+   if(size < 3) return false;
+
+   int maxShift = MathMin(lookbackBars, size - 2);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(series[shift] > level && series[shift + 1] <= level)
+         return true;
+   }
+   return false;
+}
+
+bool CrossedBelowLevel(const double &series[], double level, int lookbackBars)
+{
+   int size = ArraySize(series);
+   if(size < 3) return false;
+
+   int maxShift = MathMin(lookbackBars, size - 2);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(series[shift] < level && series[shift + 1] >= level)
+         return true;
+   }
+   return false;
+}
+
+bool WasAtOrBelowLevel(const double &series[], double level, int lookbackBars)
+{
+   int size = ArraySize(series);
+   if(size < 2) return false;
+
+   int maxShift = MathMin(lookbackBars + 1, size - 1);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(series[shift] <= level)
+         return true;
+   }
+   return false;
+}
+
+bool WasAtOrAboveLevel(const double &series[], double level, int lookbackBars)
+{
+   int size = ArraySize(series);
+   if(size < 2) return false;
+
+   int maxShift = MathMin(lookbackBars + 1, size - 1);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(series[shift] >= level)
+         return true;
+   }
+   return false;
+}
+
+bool HasBullishEMACross(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
+{
+   int fastSize = ArraySize(fastSeries);
+   int slowSize = ArraySize(slowSeries);
+   int size = MathMin(fastSize, slowSize);
+   if(size < 3) return false;
+
+   int maxShift = MathMin(lookbackBars, size - 2);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(fastSeries[shift] > slowSeries[shift] && fastSeries[shift + 1] <= slowSeries[shift + 1])
+         return true;
+   }
+   return false;
+}
+
+bool HasBearishEMACross(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
+{
+   int fastSize = ArraySize(fastSeries);
+   int slowSize = ArraySize(slowSeries);
+   int size = MathMin(fastSize, slowSize);
+   if(size < 3) return false;
+
+   int maxShift = MathMin(lookbackBars, size - 2);
+   for(int shift = 1; shift <= maxShift; shift++)
+   {
+      if(fastSeries[shift] < slowSeries[shift] && fastSeries[shift + 1] >= slowSeries[shift + 1])
+         return true;
+   }
+   return false;
+}
+
 double CalculateLotsFromStopDistance(double stopDistPrice)
 {
    if(!UseRiskBasedLots)
@@ -479,6 +570,8 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(FastEMA >= SlowEMA)
       return INIT_PARAMETERS_INCORRECT;
+   if(EMASignalLookbackBars < 1 || RSISignalLookbackBars < 1)
+      return INIT_PARAMETERS_INCORRECT;
    if(RSIBuyLevel <= 0 || RSIBuyLevel >= 50 || RSISellLevel <= 50 || RSISellLevel >= 100)
       return INIT_PARAMETERS_INCORRECT;
    if(RSIBuyLevel >= RSISellLevel)
@@ -547,28 +640,49 @@ void OnTick()
    ArraySetAsSeries(rsi, true);
    ArraySetAsSeries(atr, true);
 
-   int c1 = CopyBuffer(gFastHandle, 0, 0, 3, fast);
-   int c2 = CopyBuffer(gSlowHandle, 0, 0, 3, slow);
-   int c3 = CopyBuffer(gRsiHandle,  0, 0, 3, rsi);
+   int signalBars = MathMax(3, MathMax(EMASignalLookbackBars + 2, RSISignalLookbackBars + 2));
+
+   int c1 = CopyBuffer(gFastHandle, 0, 0, signalBars, fast);
+   int c2 = CopyBuffer(gSlowHandle, 0, 0, signalBars, slow);
+   int c3 = CopyBuffer(gRsiHandle,  0, 0, signalBars, rsi);
    int c4 = CopyBuffer(gAtrHandle,  0, 0, 3, atr);
 
-   if(c1 < 3 || c2 < 3 || c3 < 3 || c4 < 3) return;
+   if(c1 < signalBars || c2 < signalBars || c3 < signalBars || c4 < 3) return;
    if(atr[1] <= 0.0) return;
 
-   bool emaCrossUp   = (fast[1] > slow[1] && fast[2] <= slow[2]);
-   bool emaCrossDown = (fast[1] < slow[1] && fast[2] >= slow[2]);
+   bool emaCrossUp = HasBullishEMACross(fast, slow, EMASignalLookbackBars);
+   bool emaCrossDown = HasBearishEMACross(fast, slow, EMASignalLookbackBars);
 
-   bool rsiCrossUp = false;
-   bool rsiCrossDown = false;
+   bool rsiBuySignal = false;
+   bool rsiSellSignal = false;
    if(UseRSIExtremeCross)
    {
-      rsiCrossUp = (rsi[2] <= RSIBuyLevel && rsi[1] > RSIBuyLevel);
-      rsiCrossDown = (rsi[2] >= RSISellLevel && rsi[1] < RSISellLevel);
+      bool recoveredFromOversold = (rsi[1] > RSIBuyLevel && WasAtOrBelowLevel(rsi, RSIBuyLevel, RSISignalLookbackBars));
+      bool rolledFromOverbought = (rsi[1] < RSISellLevel && WasAtOrAboveLevel(rsi, RSISellLevel, RSISignalLookbackBars));
+
+      if(RequireRSICross)
+      {
+         rsiBuySignal = CrossedAboveLevel(rsi, RSIBuyLevel, RSISignalLookbackBars) || recoveredFromOversold;
+         rsiSellSignal = CrossedBelowLevel(rsi, RSISellLevel, RSISignalLookbackBars) || rolledFromOverbought;
+      }
+      else
+      {
+         rsiBuySignal = recoveredFromOversold;
+         rsiSellSignal = rolledFromOverbought;
+      }
    }
    else
    {
-      rsiCrossUp = (rsi[2] <= RSICenterLevel && rsi[1] > RSICenterLevel);
-      rsiCrossDown = (rsi[2] >= RSICenterLevel && rsi[1] < RSICenterLevel);
+      if(RequireRSICross)
+      {
+         rsiBuySignal = CrossedAboveLevel(rsi, RSICenterLevel, RSISignalLookbackBars);
+         rsiSellSignal = CrossedBelowLevel(rsi, RSICenterLevel, RSISignalLookbackBars);
+      }
+      else
+      {
+         rsiBuySignal = (rsi[1] > RSICenterLevel);
+         rsiSellSignal = (rsi[1] < RSICenterLevel);
+      }
    }
 
    bool trendBull = true;
@@ -587,8 +701,8 @@ void OnTick()
       trendBear = (trendClose < trend[1]);
    }
 
-   bool buySignal = emaCrossUp && rsiCrossUp && trendBull;
-   bool sellSignal = emaCrossDown && rsiCrossDown && trendBear;
+   bool buySignal = emaCrossUp && rsiBuySignal && trendBull;
+   bool sellSignal = emaCrossDown && rsiSellSignal && trendBear;
 
    if(buySignal)
       OpenBuy(atr[1]);
