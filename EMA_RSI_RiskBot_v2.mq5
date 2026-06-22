@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.13"
+#property version   "2.14"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -16,8 +16,8 @@ input int SlowEMA = 21;
 input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
 input int RSIPeriod = 14;
 input bool UseRSIRangeFilter = true; // when true, RSI acts as permissive bounds filter
-input double RSIUpperFilter = 70.0;  // buy only if RSI is below this
-input double RSILowerFilter = 30.0;  // sell only if RSI is above this
+input double RSIUpperFilter = 100.0; // buy only if RSI is below this (100 ~= unlocked buys)
+input double RSILowerFilter = 35.0;  // sell only if RSI is above this
 input bool UseRSIExtremeCross = false;
 input int RSISignalLookbackBars = 4; // allow RSI confirmation in recent bars
 input bool RequireRSICross = true;
@@ -31,6 +31,9 @@ input ENUM_TIMEFRAMES TrendTF = PERIOD_H4;
 input int TrendEMAPeriod = 200;
 
 input group "Volatility Stops (ATR)"
+input bool UseFixedPipTargets = true; // true => use StopLossPips/TakeProfitPips directly
+input double StopLossPips = 30.0;
+input double TakeProfitPips = 90.0;
 input int ATRPeriod = 14;
 input double SL_ATR_Mult = 1.5;
 input double TP_ATR_Mult = 2.2;
@@ -382,11 +385,22 @@ double CalculateLotsFromStopDistance(double stopDistPrice)
 
 void BuildStops(bool isBuy, double entry, double atrValue, double &sl, double &tp, double &slDistanceOut)
 {
-   double minSL = MathMax(PipsToPrice(MinSLPips), MinStopDistancePrice());
-   double minTP = MathMax(PipsToPrice(MinTPPips), MinStopDistancePrice());
+   double slDist = 0.0;
+   double tpDist = 0.0;
+   double minStop = MinStopDistancePrice();
 
-   double slDist = MathMax(atrValue * SL_ATR_Mult, minSL);
-   double tpDist = MathMax(atrValue * TP_ATR_Mult, minTP);
+   if(UseFixedPipTargets)
+   {
+      slDist = MathMax(PipsToPrice(StopLossPips), minStop);
+      tpDist = MathMax(PipsToPrice(TakeProfitPips), minStop);
+   }
+   else
+   {
+      double minSL = MathMax(PipsToPrice(MinSLPips), minStop);
+      double minTP = MathMax(PipsToPrice(MinTPPips), minStop);
+      slDist = MathMax(atrValue * SL_ATR_Mult, minSL);
+      tpDist = MathMax(atrValue * TP_ATR_Mult, minTP);
+   }
 
    slDistanceOut = slDist;
 
@@ -575,9 +589,11 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(EMASignalLookbackBars < 1 || RSISignalLookbackBars < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(RSIUpperFilter <= 50.0 || RSIUpperFilter >= 100.0 || RSILowerFilter <= 0.0 || RSILowerFilter >= 50.0)
+   if(RSIUpperFilter <= 50.0 || RSIUpperFilter > 100.0 || RSILowerFilter <= 0.0 || RSILowerFilter >= 50.0)
       return INIT_PARAMETERS_INCORRECT;
    if(RSILowerFilter >= RSIUpperFilter)
+      return INIT_PARAMETERS_INCORRECT;
+   if(StopLossPips <= 0.0 || TakeProfitPips <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
    if(RSIBuyLevel <= 0 || RSIBuyLevel >= 50 || RSISellLevel <= 50 || RSISellLevel >= 100)
       return INIT_PARAMETERS_INCORRECT;
