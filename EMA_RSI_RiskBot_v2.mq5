@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.12"
+#property version   "2.13"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -15,6 +15,9 @@ input int FastEMA = 9;
 input int SlowEMA = 21;
 input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
 input int RSIPeriod = 14;
+input bool UseRSIRangeFilter = true; // when true, RSI acts as permissive bounds filter
+input double RSIUpperFilter = 70.0;  // buy only if RSI is below this
+input double RSILowerFilter = 30.0;  // sell only if RSI is above this
 input bool UseRSIExtremeCross = false;
 input int RSISignalLookbackBars = 4; // allow RSI confirmation in recent bars
 input bool RequireRSICross = true;
@@ -572,6 +575,10 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(EMASignalLookbackBars < 1 || RSISignalLookbackBars < 1)
       return INIT_PARAMETERS_INCORRECT;
+   if(RSIUpperFilter <= 50.0 || RSIUpperFilter >= 100.0 || RSILowerFilter <= 0.0 || RSILowerFilter >= 50.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if(RSILowerFilter >= RSIUpperFilter)
+      return INIT_PARAMETERS_INCORRECT;
    if(RSIBuyLevel <= 0 || RSIBuyLevel >= 50 || RSISellLevel <= 50 || RSISellLevel >= 100)
       return INIT_PARAMETERS_INCORRECT;
    if(RSIBuyLevel >= RSISellLevel)
@@ -655,7 +662,13 @@ void OnTick()
 
    bool rsiBuySignal = false;
    bool rsiSellSignal = false;
-   if(UseRSIExtremeCross)
+   if(UseRSIRangeFilter)
+   {
+      // Permissive mode: EMA decides direction, RSI only blocks extreme stretches.
+      rsiBuySignal = (rsi[1] < RSIUpperFilter);
+      rsiSellSignal = (rsi[1] > RSILowerFilter);
+   }
+   else if(UseRSIExtremeCross)
    {
       bool recoveredFromOversold = (rsi[1] > RSIBuyLevel && WasAtOrBelowLevel(rsi, RSIBuyLevel, RSISignalLookbackBars));
       bool rolledFromOverbought = (rsi[1] < RSISellLevel && WasAtOrAboveLevel(rsi, RSISellLevel, RSISignalLookbackBars));
