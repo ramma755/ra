@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.15"
+#property version   "2.16"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -15,8 +15,10 @@ input int FastEMA = 9;
 input int SlowEMA = 21;
 input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
 input int RSIPeriod = 14;
-input double RSIUpper = 70.0; // Buy boundary: allow buys when RSI <= this level
-input double RSILower = 55.0; // Sell boundary: allow sells when RSI >= this level
+input double BuyRSIMin = 45.0;  // Buy only when RSI is in this momentum cushion
+input double BuyRSIMax = 65.0;
+input double SellRSIMin = 35.0; // Sell only when RSI is in this momentum cushion
+input double SellRSIMax = 55.0;
 
 input group "Trend Filter (Higher Timeframe)"
 input bool UseTrendFilter = false;
@@ -26,7 +28,7 @@ input int TrendEMAPeriod = 200;
 input group "Volatility Stops (ATR)"
 input bool UseFixedPipTargets = true; // true => use StopLossPips/TakeProfitPips directly
 input double StopLossPips = 30.0;
-input double TakeProfitPips = 90.0;
+input double TakeProfitPips = 45.0;
 input int ATRPeriod = 14;
 input double SL_ATR_Mult = 1.5;
 input double TP_ATR_Mult = 2.2;
@@ -73,6 +75,7 @@ ENUM_TIMEFRAMES gSignalTF = PERIOD_CURRENT;
 
 datetime gLastSignalBarTime = 0;
 datetime gLastTradeBarTime = 0;
+bool gHadOpenPosition = false;
 
 datetime gTodayStart = 0;
 double gDayStartEquity = 0.0;
@@ -259,33 +262,37 @@ bool HasOpenPositionForEA()
    return false;
 }
 
-bool HasBullishEMACross(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
+bool HasBullishSetup(const double &fastSeries[], const double &slowSeries[], const double &rsiSeries[],
+                     int lookbackBars, double rsiMin, double rsiMax)
 {
-   int fastSize = ArraySize(fastSeries);
-   int slowSize = ArraySize(slowSeries);
-   int size = MathMin(fastSize, slowSize);
+   int size = MathMin(ArraySize(fastSeries), MathMin(ArraySize(slowSeries), ArraySize(rsiSeries)));
    if(size < 3) return false;
 
    int maxShift = MathMin(lookbackBars, size - 2);
    for(int shift = 1; shift <= maxShift; shift++)
    {
-      if(fastSeries[shift] > slowSeries[shift] && fastSeries[shift + 1] <= slowSeries[shift + 1])
+      bool crossUp = (fastSeries[shift] > slowSeries[shift] && fastSeries[shift + 1] <= slowSeries[shift + 1]);
+      bool trendUp = (fastSeries[shift] > slowSeries[shift]);
+      bool rsiInRange = (rsiSeries[shift] >= rsiMin && rsiSeries[shift] <= rsiMax);
+      if(crossUp && trendUp && rsiInRange)
          return true;
    }
    return false;
 }
 
-bool HasBearishEMACross(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
+bool HasBearishSetup(const double &fastSeries[], const double &slowSeries[], const double &rsiSeries[],
+                     int lookbackBars, double rsiMin, double rsiMax)
 {
-   int fastSize = ArraySize(fastSeries);
-   int slowSize = ArraySize(slowSeries);
-   int size = MathMin(fastSize, slowSize);
+   int size = MathMin(ArraySize(fastSeries), MathMin(ArraySize(slowSeries), ArraySize(rsiSeries)));
    if(size < 3) return false;
 
    int maxShift = MathMin(lookbackBars, size - 2);
    for(int shift = 1; shift <= maxShift; shift++)
    {
-      if(fastSeries[shift] < slowSeries[shift] && fastSeries[shift + 1] >= slowSeries[shift + 1])
+      bool crossDown = (fastSeries[shift] < slowSeries[shift] && fastSeries[shift + 1] >= slowSeries[shift + 1]);
+      bool trendDown = (fastSeries[shift] < slowSeries[shift]);
+      bool rsiInRange = (rsiSeries[shift] >= rsiMin && rsiSeries[shift] <= rsiMax);
+      if(crossDown && trendDown && rsiInRange)
          return true;
    }
    return false;
@@ -526,9 +533,9 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(EMASignalLookbackBars < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(RSIUpper <= 50.0 || RSIUpper > 100.0)
+   if(BuyRSIMin < 0.0 || BuyRSIMax > 100.0 || SellRSIMin < 0.0 || SellRSIMax > 100.0)
       return INIT_PARAMETERS_INCORRECT;
-   if(RSILower <= 0.0 || RSILower >= RSIUpper)
+   if(BuyRSIMin >= BuyRSIMax || SellRSIMin >= SellRSIMax)
       return INIT_PARAMETERS_INCORRECT;
    if(StopLossPips <= 0.0 || TakeProfitPips <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
@@ -576,6 +583,16 @@ void OnTick()
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
       return;
 
+    // If a position just closed, clear local gating state so the EA can immediately
+    // evaluate the next valid crossover without stale cooldown or bar-state lock.
+   bool hasOpenPositionNow = HasOpenPositionForEA();
+   if(gHadOpenPosition && !hasOpenPositionNow)
+   {
+      gLastTradeBarTime = 0;
+      gLastSignalBarTime = 0;
+   }
+   gHadOpenPosition = hasOpenPositionNow;
+
    if(DailyLossLimitHit())
    {
       Comment("EA paused: daily loss limit hit.");
@@ -588,7 +605,7 @@ void OnTick()
    if(!IsNewSignalBar()) return;
    if(!CooldownPassed()) return;
    if(gTradesToday >= MaxTradesPerDay) return;
-   if(OnePositionPerSymbol && HasOpenPositionForEA()) return;
+   if(OnePositionPerSymbol && hasOpenPositionNow) return;
 
    double fast[], slow[], rsi[], atr[];
    ArraySetAsSeries(fast, true);
@@ -606,14 +623,8 @@ void OnTick()
    if(c1 < signalBars || c2 < signalBars || c3 < signalBars || c4 < 3) return;
    if(atr[1] <= 0.0) return;
 
-   bool emaCrossUp = HasBullishEMACross(fast, slow, EMASignalLookbackBars);
-   bool emaCrossDown = HasBearishEMACross(fast, slow, EMASignalLookbackBars);
-
-   // RSI boundary filters:
-   // - Buy side stays enabled as long as RSI is not above RSIUpper.
-   // - Sell side is allowed only when RSI is at/above RSILower to avoid weak shorts.
-   bool rsiBuySignal = (rsi[1] <= RSIUpper);
-   bool rsiSellSignal = (rsi[1] >= RSILower);
+   bool bullishSetup = HasBullishSetup(fast, slow, rsi, EMASignalLookbackBars, BuyRSIMin, BuyRSIMax);
+   bool bearishSetup = HasBearishSetup(fast, slow, rsi, EMASignalLookbackBars, SellRSIMin, SellRSIMax);
 
    bool trendBull = true;
    bool trendBear = true;
@@ -632,10 +643,11 @@ void OnTick()
    }
 
    // Core entry math:
-   // 1) EMA crossover provides direction.
-   // 2) RSI boundaries gate trade quality without disabling one side of the market.
-   bool buySignal = emaCrossUp && rsiBuySignal && trendBull;
-   bool sellSignal = emaCrossDown && rsiSellSignal && trendBear;
+   // 1) EMA crossover and trend side define direction.
+   // 2) RSI cushion ranges remove weak fake-outs.
+   // 3) Both long and short paths are evaluated independently.
+   bool buySignal = bullishSetup && trendBull;
+   bool sellSignal = bearishSetup && trendBear;
 
    if(buySignal)
       OpenBuy(atr[1]);
