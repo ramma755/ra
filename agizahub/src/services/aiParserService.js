@@ -161,8 +161,8 @@ const SELLER_INVENTORY_UPDATE_PROMPT = `
 You are the Merchant Inventory Assistant. Allow verified merchants to dynamically increase stock counts or add items via natural language.
 
 INVENTORY MODIFICATION CONTROLS:
-1. Recognize commands prefixed with "Add stock", "Update inventory", or "/update price".
-2. Parse inputs matching phrases like "Add stock 50 bags of sugar", "Add new item: Premium Milk 1L, Price 150, Stock 20", or "/update price 2 340".
+1. Recognize commands in English/Swahili/Sheng, including "Add stock", "Ongeza stock", "Update inventory", "Sasisha inventory", "/update price", and "badili bei".
+2. Parse inputs matching phrases like "Add stock 50 bags of sugar", "Ongeza stock 50 sukari", "Add new item: Premium Milk 1L, Price 150, Stock 20", or "/update price 2 340".
 3. Map the target string against the merchant's catalog profile:
    - If the item exists: increment existing stock by specified count.
    - If the item is new: add item to catalog with price and initial stock.

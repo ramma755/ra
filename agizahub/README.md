@@ -207,17 +207,17 @@ Transport charge engine for buyer checkout:
 
 Transport-only mode (no supplier involved):
 
-- Start with `transport` or `move`
+- Start with `transport` / `move` / `hama` / `safirisha`
 - Categories:
   - `COMMERCIAL_FREIGHT` (bulk/business stock movement)
   - `PERSONAL_RELOCATION` (household and personal goods)
 - Requester confirms with `1` after quote summary + STK prompt
-- Drivers can view open jobs via `jobs` and claim via `Claim <OrderID>`
+- Drivers can view open jobs via `jobs` / `kazi` and claim via `Claim <OrderID>` / `chukua <OrderID>`
 - Driver targeting is queued in `transport_job_broadcasts` using vehicle class + corridor matching
 - Drivers can set targeting profile:
-  - `vehicle 1|2|3` to set capacity class
-  - `corridor <town/area>` to set preferred corridor (or leave blank for broad matching)
-- Driver finalizes delivery with `Deliver <OrderID> <AGZ-XXXXXX>`
+  - `vehicle 1|2|3` or `gari 1|2|3` to set capacity class
+  - `corridor <town/area>` or `eneo <town/area>` to set preferred corridor (or leave blank for broad matching)
+- Driver finalizes delivery with `Deliver <OrderID> <AGZ-XXXXXX>` or `Wasilisha <OrderID> <AGZ-XXXXXX>`
 - Admin still controls release with `Release <OrderID>`
 - Global transporter timeout guard:
   - `TRANSPORTER_ASSIGNMENT_TIMEOUT_MINUTES` (default 20)
@@ -229,15 +229,15 @@ Supplier catalog intake:
 
 - supplier onboarding now includes business type choice:
   - `WHOLESALE`, `RETAILER`, `RESTAURANT`, `GENERAL_SERVICES`
-- supplier must accept merchant agreement by replying `I AGREE` before catalog activation
+- supplier must accept merchant agreement by replying `I AGREE` or `Nakubali` before catalog activation
 - for each new buyer order, supplier is immediately notified and must choose logistics mode:
   - supplier first confirms stock (`1` in stock, `2` out of stock) before any buyer payment
   - `1` own transport (no driver broadcast, no logistics premium cut)
   - `2` AgizaHub matching (bot asks vehicle `1/2/3/4` then broadcasts only after selection)
 - if seller reports out-of-stock, buyer receives alternative sellers ranked by location then price
-- buyer can search marketplace with `search <item>` and select seller row IDs (`search_select_<catalog>_<seller>`)
+- buyer can search marketplace with `search <item>` / `tafuta <item>` and select seller row IDs (`search_select_<catalog>_<seller>`)
 - support/help center:
-  - `help` or `/help` opens numbered support menu (wrong order, missing code, transporter delay, refund, human admin)
+  - `help`, `/help`, `msaada`, or `nisaidie` opens numbered support menu (wrong order, missing code, transporter delay, refund, human admin)
   - option 1 auto-freezes escrow to `DISPUTED_HOLD` and alerts admin
   - option 2 auto-regenerates `AGZ-XXXXXX` token for active paid escrow orders
   - option 4 starts refund flow for eligible unpaid-delivery disputes, else escalates to admin
@@ -254,10 +254,10 @@ Supplier catalog intake:
   - media-only uploads are supported in WAHA/Twilio webhook parsing (`__media_shared__` path)
   - document/image ingestion performs deduplicating upsert (existing item names are updated, new ones inserted)
   - seller inventory commands:
-    - `Add stock 50 Sugar`
+    - `Add stock 50 Sugar` or `Ongeza stock 50 Sugar`
     - `Add new item: Premium Milk 1L, Price 150, Stock 20`
-    - `my prices` (lists seller item IDs + current prices)
-    - `/update price <catalog_item_id> <new_price>` (example: `/update price 2 340`)
+    - `my prices` / `bei zangu` (lists seller item IDs + current prices)
+    - `/update price <catalog_item_id> <new_price>` or `badili bei <catalog_item_id> <new_price>` (example: `/update price 2 340`)
   - dynamic pricing behavior:
     - sellers can update prices anytime by WhatsApp command (Option B)
     - buyer checkout/STK amount is computed from current DB value at order creation time

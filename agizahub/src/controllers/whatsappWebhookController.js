@@ -381,6 +381,30 @@ const buildGoogleMapsDirectionsLink = ({ originLat, originLng, destinationLat, d
 const emotionalEscalationPattern =
   /(fraud|scam|police|court|lawyer|sue|angry|furious|stolen|threat|urgent|emergency|human admin|talk to admin)/i;
 
+const merchantAgreementAcceptPattern = /^(?:i\s+agree|nakubali(?:\s+masharti)?)$/i;
+const termsCommandPattern = /^(?:terms|masharti|vigezo|kanuni)$/i;
+const supportOrderPattern = /^(?:support|msaada|tiketi)\s+([a-zA-Z0-9-]+)/i;
+const helpCommandPattern = /^(?:\/?help|\/?msaada|nisaidie|saidia|help\s+me)$/i;
+const transportCommandPattern = /^(?:transport|move|hama|safirisha)$/i;
+const buyOffersViewPattern = /^(?:buy|offers|view|nunua|onyesha|bidhaa|orodha)$/i;
+const searchCommandPrefixPattern = /^(?:search|find|tafuta|tafta|nitafutie)\s+/i;
+const supplierBuyPattern = /^(?:buy|nunua|agiza)\s+(\d{5})\s+(\d+(?:\.\d+)?)$/i;
+const refundPattern = /^(?:refund|rejesha|rudisha)\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i;
+const addStockPrefixPattern = /^(?:add\s+stock|ongeza\s+(?:stock|hisa|stoo))\s+/i;
+const addOrUpdateInventoryPattern =
+  /^(?:add\s+new\s+item|update\s+inventory|ongeza\s+bidhaa\s+mpya|sasisha\s+(?:inventory|orodha))/i;
+const priceUpdatePrefixPattern =
+  /^(?:\/?update\s+price|badili\s+bei|weka\s+bei|sahihisha\s+bei)\b/i;
+const listPricesPattern =
+  /^(?:\/?(?:my\s+prices|list\s+prices|price\s+list|my\s+catalog)|bei\s+zangu|orodha\s+ya\s+bei)$/i;
+const corridorPattern = /^(?:corridor|eneo)\s+(.+)$/i;
+const vehiclePattern = /^(?:vehicle|gari)\s+(.+)$/i;
+const jobsPattern = /^(?:jobs|open\s+jobs|kazi|kazi\s+wazi)$/i;
+const claimPattern = /^(?:claim|chukua)\s+([a-zA-Z0-9-]+)/i;
+const deliverPattern = /^(?:deliver|wasilisha)\s+([a-zA-Z0-9-]+)\s+((?:AGZ-\d{6})|\d{4})$/i;
+const supplierCatalogTriggerPattern =
+  /^(?:update(\s+my)?\s+(items|catalog|catalogue|stock)|add\s+(catalog|catalogue)|catalog(\s+update)?|sasisha\s+(?:bidhaa|catalog|catalogue|stock)|ongeza\s+(?:bidhaa|catalog|catalogue|stock))$/i;
+
 const normalizeOrderIdFromText = (text) => (text || "").trim();
 
 const parseCatalogLine = (rawMessage) => {
@@ -397,7 +421,7 @@ const parseCatalogLine = (rawMessage) => {
 const parseAddStockCommand = (rawMessage) => {
   const match = String(rawMessage || "")
     .trim()
-    .match(/^add\s+stock\s+(\d+)\s+(.+)$/i);
+    .match(/^(?:add\s+stock|ongeza\s+(?:stock|hisa|stoo))\s+(\d+)\s+(.+)$/i);
   if (!match) return null;
   return {
     quantity: Number(match[1]),
@@ -408,9 +432,9 @@ const parseAddStockCommand = (rawMessage) => {
 const parseInventoryNewItemCommand = (rawMessage) => {
   const cleaned = String(rawMessage || "")
     .trim()
-    .replace(/^add\s+new\s+item\s*:\s*/i, "")
-    .replace(/^update\s+inventory\s*:\s*/i, "")
-    .replace(/^update\s+inventory\s+/i, "");
+    .replace(/^(?:add\s+new\s+item|ongeza\s+bidhaa\s+mpya)\s*:\s*/i, "")
+    .replace(/^(?:update\s+inventory|sasisha\s+(?:inventory|orodha))\s*:\s*/i, "")
+    .replace(/^(?:update\s+inventory|sasisha\s+(?:inventory|orodha))\s+/i, "");
   if (!cleaned) return null;
 
   const chunks = cleaned.split(",").map((c) => c.trim()).filter(Boolean);
@@ -439,7 +463,7 @@ const parseInventoryNewItemCommand = (rawMessage) => {
 const parseUpdatePriceCommand = (rawMessage) => {
   const match = String(rawMessage || "")
     .trim()
-    .match(/^\/?update\s+price\s+(\d+)\s+(\d+(?:\.\d+)?)$/i);
+    .match(/^(?:\/?update\s+price|badili\s+bei|weka\s+bei|sahihisha\s+bei)\s+(\d+)\s+(\d+(?:\.\d+)?)$/i);
   if (!match) return null;
   const catalogItemId = Number(match[1]);
   const newPrice = Number(match[2]);
@@ -487,7 +511,9 @@ const parseAndNormalizeMerchantCatalog = async ({
   merchantPhone,
   businessTypeHint,
 }) => {
-  const cleanedInput = String(rawMessage || "").replace(/^catalog\s+/i, "").trim();
+  const cleanedInput = String(rawMessage || "")
+    .replace(/^(?:catalog|catalogue|orodha)\s+/i, "")
+    .trim();
   const simple = parseCatalogLine(cleanedInput);
   if (simple) {
     return {
@@ -1016,7 +1042,7 @@ const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
   }
 
   const lines = [
-    "Your catalog price list (use ID with /update price <ID> <NEW_PRICE>):",
+    "Your catalog price list (use ID with /update price <ID> <NEW_PRICE> or badili bei <ID> <NEW_PRICE>):",
   ];
   for (const row of result.rows) {
     lines.push(
@@ -3414,7 +3440,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
 
     if (
       user.user_type === "SUPPLIER" &&
-      lowerMessage === "i agree" &&
+      merchantAgreementAcceptPattern.test(rawMessage.trim()) &&
       user.merchant_agreement_status !== "ACCEPTED"
     ) {
       const nextStep =
@@ -3443,7 +3469,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (user.user_type === "SUPPLIER" && lowerMessage === "terms") {
+    if (user.user_type === "SUPPLIER" && termsCommandPattern.test(rawMessage.trim())) {
       return respondToUser({
         res,
         provider,
@@ -3452,8 +3478,8 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (/^support\s+([a-zA-Z0-9-]+)/i.test(rawMessage)) {
-      const match = rawMessage.match(/^support\s+([a-zA-Z0-9-]+)/i);
+    if (supportOrderPattern.test(rawMessage)) {
+      const match = rawMessage.match(supportOrderPattern);
       const supportOrderId = normalizeOrderIdFromText(match[1]);
       await query(
         `
@@ -3480,7 +3506,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (lowerMessage === "help" || lowerMessage === "/help") {
+    if (helpCommandPattern.test(rawMessage.trim())) {
       await query(
         `
           UPDATE platform_users
@@ -3506,7 +3532,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message:
-          "Your case is currently with a human admin reviewer. Type help to view support options again.",
+          "Your case is currently with a human admin reviewer. Type help or msaada to view support options again.",
       });
     }
 
@@ -3915,12 +3941,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (
-      user.user_type === "SUPPLIER" &&
-      /^(update(\s+my)?\s+(items|catalog|catalogue|stock)|add\s+(catalog|catalogue)|catalog(\s+update)?)$/i.test(
-        lowerMessage
-      )
-    ) {
+    if (user.user_type === "SUPPLIER" && supplierCatalogTriggerPattern.test(rawMessage.trim())) {
       await query(
         `
           UPDATE platform_users
@@ -3939,7 +3960,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (lowerMessage === "transport" || lowerMessage === "move") {
+    if (transportCommandPattern.test(rawMessage.trim())) {
       await query(
         `
           UPDATE platform_users
@@ -3958,7 +3979,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (lowerMessage === "buy" || lowerMessage === "offers" || lowerMessage === "view") {
+    if (buyOffersViewPattern.test(rawMessage.trim())) {
       return respondToUser({
         res,
         provider,
@@ -3967,17 +3988,15 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (
-      user.user_type === "BUYER" &&
-      (/^search\s+/i.test(rawMessage) || /^find\s+/i.test(rawMessage))
-    ) {
-      const searchTerm = rawMessage.replace(/^(search|find)\s+/i, "").trim();
+    if (user.user_type === "BUYER" && searchCommandPrefixPattern.test(rawMessage)) {
+      const searchTerm = rawMessage.replace(searchCommandPrefixPattern, "").trim();
       if (!searchTerm) {
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: "Use: search <product name>. Example: search maize flour",
+          message:
+            "Use: search <product name> or tafuta <product name>. Example: search maize flour",
         });
       }
 
@@ -4027,10 +4046,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (
-      user.user_type === "SUPPLIER" &&
-      /^\/?(my\s+prices|list\s+prices|price\s+list|my\s+catalog)$/i.test(rawMessage.trim())
-    ) {
+    if (user.user_type === "SUPPLIER" && listPricesPattern.test(rawMessage.trim())) {
       return respondToUser({
         res,
         provider,
@@ -4041,7 +4057,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (user.user_type === "SUPPLIER" && /^\/?update\s+price\s+/i.test(rawMessage)) {
+    if (user.user_type === "SUPPLIER" && priceUpdatePrefixPattern.test(rawMessage.trim())) {
       const parsedPriceUpdate = parseUpdatePriceCommand(rawMessage);
       if (!parsedPriceUpdate) {
         return respondToUser({
@@ -4049,7 +4065,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           provider,
           senderPhone,
           message:
-            "Use: /update price <catalog_item_id> <new_price>. Example: /update price 2 340. Type 'my prices' to see item IDs.",
+            "Use: /update price <catalog_item_id> <new_price> or badili bei <catalog_item_id> <new_price>. Example: /update price 2 340. Type 'my prices' or 'bei zangu' to see item IDs.",
         });
       }
 
@@ -4096,14 +4112,15 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (user.user_type === "SUPPLIER" && /^add\s+stock\s+/i.test(rawMessage)) {
+    if (user.user_type === "SUPPLIER" && addStockPrefixPattern.test(rawMessage)) {
       const parsedAdd = parseAddStockCommand(rawMessage);
       if (!parsedAdd || parsedAdd.quantity <= 0) {
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: "Use: Add stock <quantity> <item name>. Example: Add stock 50 Sugar",
+          message:
+            "Use: Add stock <quantity> <item name> or Ongeza stock <quantity> <item>. Example: Add stock 50 Sugar",
         });
       }
 
@@ -4140,10 +4157,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    if (
-      user.user_type === "SUPPLIER" &&
-      (/^add\s+new\s+item/i.test(rawMessage) || /^update\s+inventory/i.test(rawMessage))
-    ) {
+    if (user.user_type === "SUPPLIER" && addOrUpdateInventoryPattern.test(rawMessage)) {
       const parsedNewItem = parseInventoryNewItemCommand(rawMessage);
       if (!parsedNewItem) {
         return respondToUser({
@@ -4151,7 +4165,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           provider,
           senderPhone,
           message:
-            "Use: Add new item: Premium Milk 1L, Price 150, Stock 20",
+            "Use: Add new item: Premium Milk 1L, Price 150, Stock 20 (or Ongeza bidhaa mpya: ...)",
         });
       }
 
@@ -4254,7 +4268,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     if (user.user_type === "BUYER") {
-      const buyMatch = rawMessage.match(/^buy\s+(\d{5})\s+(\d+(?:\.\d+)?)$/i);
+      const buyMatch = rawMessage.match(supplierBuyPattern);
       if (buyMatch) {
         const payload = await createOrderFromCatalogRequest({
           buyer: user,
@@ -4274,7 +4288,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
 
-      const refundMatch = rawMessage.match(/^refund\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i);
+      const refundMatch = rawMessage.match(refundPattern);
       if (refundMatch) {
         await requestOrderRefund({
           orderId: normalizeOrderIdFromText(refundMatch[1]),
@@ -4294,9 +4308,11 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
-      /^corridor\s+/i.test(rawMessage)
+      corridorPattern.test(rawMessage)
     ) {
-      const corridor = rawMessage.replace(/^corridor\s+/i, "").trim().slice(0, 80);
+      const corridor = String(rawMessage.match(corridorPattern)?.[1] || "")
+        .trim()
+        .slice(0, 80);
       if (!corridor) {
         return respondToUser({
           res,
@@ -4325,9 +4341,9 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
-      /^vehicle\s+/i.test(rawMessage)
+      vehiclePattern.test(rawMessage)
     ) {
-      const choice = rawMessage.replace(/^vehicle\s+/i, "").trim();
+      const choice = String(rawMessage.match(vehiclePattern)?.[1] || "").trim();
       const vehicleType = parseVehicleType(choice);
       if (!vehicleType) {
         return respondToUser({
@@ -4358,7 +4374,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
-      (lowerMessage === "jobs" || lowerMessage === "open jobs")
+      jobsPattern.test(rawMessage.trim())
     ) {
       return respondToUser({
         res,
@@ -4373,9 +4389,9 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
-      /^claim\s+/i.test(rawMessage)
+      claimPattern.test(rawMessage)
     ) {
-      const claimMatch = rawMessage.match(/^claim\s+([a-zA-Z0-9-]+)/i);
+      const claimMatch = rawMessage.match(claimPattern);
       if (!claimMatch) {
         return respondToUser({
           res,
@@ -4403,11 +4419,9 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
-      /^deliver\s+/i.test(rawMessage)
+      deliverPattern.test(rawMessage)
     ) {
-      const deliverMatch = rawMessage.match(
-        /^deliver\s+([a-zA-Z0-9-]+)\s+((?:AGZ-\d{6})|\d{4})$/i
-      );
+      const deliverMatch = rawMessage.match(deliverPattern);
       if (!deliverMatch) {
         return respondToUser({
           res,
