@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.10"
+#property version   "2.11"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -358,7 +358,7 @@ void OpenSell(double atrValue)
 
 void ManageOpenPositions()
 {
-   double atrBuf[2];
+   double atrBuf[];
    ArraySetAsSeries(atrBuf, true);
    if(CopyBuffer(gAtrHandle, 0, 0, 2, atrBuf) < 1)
       return;
@@ -541,7 +541,7 @@ void OnTick()
    if(gTradesToday >= MaxTradesPerDay) return;
    if(OnePositionPerSymbol && HasOpenPositionForEA()) return;
 
-   double fast[3], slow[3], rsi[3], atr[3];
+   double fast[], slow[], rsi[], atr[];
    ArraySetAsSeries(fast, true);
    ArraySetAsSeries(slow, true);
    ArraySetAsSeries(rsi, true);
@@ -576,7 +576,7 @@ void OnTick()
 
    if(UseTrendFilter)
    {
-      double trend[3];
+      double trend[];
       ArraySetAsSeries(trend, true);
       if(CopyBuffer(gTrendHandle, 0, 0, 3, trend) < 3) return;
 
