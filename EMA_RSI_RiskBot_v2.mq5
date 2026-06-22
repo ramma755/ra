@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.14"
+#property version   "2.15"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -15,18 +15,11 @@ input int FastEMA = 9;
 input int SlowEMA = 21;
 input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
 input int RSIPeriod = 14;
-input bool UseRSIRangeFilter = true; // when true, RSI acts as permissive bounds filter
-input double RSIUpperFilter = 100.0; // buy only if RSI is below this (100 ~= unlocked buys)
-input double RSILowerFilter = 35.0;  // sell only if RSI is above this
-input bool UseRSIExtremeCross = false;
-input int RSISignalLookbackBars = 4; // allow RSI confirmation in recent bars
-input bool RequireRSICross = true;
-input double RSIBuyLevel = 40.0;   // used when UseRSIExtremeCross=true
-input double RSISellLevel = 60.0;  // used when UseRSIExtremeCross=true
-input double RSICenterLevel = 50.0; // fallback cross if UseRSIExtremeCross=false
+input double RSIUpper = 70.0; // Buy boundary: allow buys when RSI <= this level
+input double RSILower = 55.0; // Sell boundary: allow sells when RSI >= this level
 
 input group "Trend Filter (Higher Timeframe)"
-input bool UseTrendFilter = true;
+input bool UseTrendFilter = false;
 input ENUM_TIMEFRAMES TrendTF = PERIOD_H4;
 input int TrendEMAPeriod = 200;
 
@@ -261,62 +254,6 @@ bool HasOpenPositionForEA()
       long mg = PositionGetInteger(POSITION_MAGIC);
 
       if(sym == _Symbol && mg == MagicNumber)
-         return true;
-   }
-   return false;
-}
-
-bool CrossedAboveLevel(const double &series[], double level, int lookbackBars)
-{
-   int size = ArraySize(series);
-   if(size < 3) return false;
-
-   int maxShift = MathMin(lookbackBars, size - 2);
-   for(int shift = 1; shift <= maxShift; shift++)
-   {
-      if(series[shift] > level && series[shift + 1] <= level)
-         return true;
-   }
-   return false;
-}
-
-bool CrossedBelowLevel(const double &series[], double level, int lookbackBars)
-{
-   int size = ArraySize(series);
-   if(size < 3) return false;
-
-   int maxShift = MathMin(lookbackBars, size - 2);
-   for(int shift = 1; shift <= maxShift; shift++)
-   {
-      if(series[shift] < level && series[shift + 1] >= level)
-         return true;
-   }
-   return false;
-}
-
-bool WasAtOrBelowLevel(const double &series[], double level, int lookbackBars)
-{
-   int size = ArraySize(series);
-   if(size < 2) return false;
-
-   int maxShift = MathMin(lookbackBars + 1, size - 1);
-   for(int shift = 1; shift <= maxShift; shift++)
-   {
-      if(series[shift] <= level)
-         return true;
-   }
-   return false;
-}
-
-bool WasAtOrAboveLevel(const double &series[], double level, int lookbackBars)
-{
-   int size = ArraySize(series);
-   if(size < 2) return false;
-
-   int maxShift = MathMin(lookbackBars + 1, size - 1);
-   for(int shift = 1; shift <= maxShift; shift++)
-   {
-      if(series[shift] >= level)
          return true;
    }
    return false;
@@ -587,17 +524,13 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(FastEMA >= SlowEMA)
       return INIT_PARAMETERS_INCORRECT;
-   if(EMASignalLookbackBars < 1 || RSISignalLookbackBars < 1)
+   if(EMASignalLookbackBars < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(RSIUpperFilter <= 50.0 || RSIUpperFilter > 100.0 || RSILowerFilter <= 0.0 || RSILowerFilter >= 50.0)
+   if(RSIUpper <= 50.0 || RSIUpper > 100.0)
       return INIT_PARAMETERS_INCORRECT;
-   if(RSILowerFilter >= RSIUpperFilter)
+   if(RSILower <= 0.0 || RSILower >= RSIUpper)
       return INIT_PARAMETERS_INCORRECT;
    if(StopLossPips <= 0.0 || TakeProfitPips <= 0.0)
-      return INIT_PARAMETERS_INCORRECT;
-   if(RSIBuyLevel <= 0 || RSIBuyLevel >= 50 || RSISellLevel <= 50 || RSISellLevel >= 100)
-      return INIT_PARAMETERS_INCORRECT;
-   if(RSIBuyLevel >= RSISellLevel)
       return INIT_PARAMETERS_INCORRECT;
 
    gSignalTF = (SignalTF == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)_Period : SignalTF;
@@ -663,7 +596,7 @@ void OnTick()
    ArraySetAsSeries(rsi, true);
    ArraySetAsSeries(atr, true);
 
-   int signalBars = MathMax(3, MathMax(EMASignalLookbackBars + 2, RSISignalLookbackBars + 2));
+   int signalBars = MathMax(3, EMASignalLookbackBars + 2);
 
    int c1 = CopyBuffer(gFastHandle, 0, 0, signalBars, fast);
    int c2 = CopyBuffer(gSlowHandle, 0, 0, signalBars, slow);
@@ -676,43 +609,11 @@ void OnTick()
    bool emaCrossUp = HasBullishEMACross(fast, slow, EMASignalLookbackBars);
    bool emaCrossDown = HasBearishEMACross(fast, slow, EMASignalLookbackBars);
 
-   bool rsiBuySignal = false;
-   bool rsiSellSignal = false;
-   if(UseRSIRangeFilter)
-   {
-      // Permissive mode: EMA decides direction, RSI only blocks extreme stretches.
-      rsiBuySignal = (rsi[1] < RSIUpperFilter);
-      rsiSellSignal = (rsi[1] > RSILowerFilter);
-   }
-   else if(UseRSIExtremeCross)
-   {
-      bool recoveredFromOversold = (rsi[1] > RSIBuyLevel && WasAtOrBelowLevel(rsi, RSIBuyLevel, RSISignalLookbackBars));
-      bool rolledFromOverbought = (rsi[1] < RSISellLevel && WasAtOrAboveLevel(rsi, RSISellLevel, RSISignalLookbackBars));
-
-      if(RequireRSICross)
-      {
-         rsiBuySignal = CrossedAboveLevel(rsi, RSIBuyLevel, RSISignalLookbackBars) || recoveredFromOversold;
-         rsiSellSignal = CrossedBelowLevel(rsi, RSISellLevel, RSISignalLookbackBars) || rolledFromOverbought;
-      }
-      else
-      {
-         rsiBuySignal = recoveredFromOversold;
-         rsiSellSignal = rolledFromOverbought;
-      }
-   }
-   else
-   {
-      if(RequireRSICross)
-      {
-         rsiBuySignal = CrossedAboveLevel(rsi, RSICenterLevel, RSISignalLookbackBars);
-         rsiSellSignal = CrossedBelowLevel(rsi, RSICenterLevel, RSISignalLookbackBars);
-      }
-      else
-      {
-         rsiBuySignal = (rsi[1] > RSICenterLevel);
-         rsiSellSignal = (rsi[1] < RSICenterLevel);
-      }
-   }
+   // RSI boundary filters:
+   // - Buy side stays enabled as long as RSI is not above RSIUpper.
+   // - Sell side is allowed only when RSI is at/above RSILower to avoid weak shorts.
+   bool rsiBuySignal = (rsi[1] <= RSIUpper);
+   bool rsiSellSignal = (rsi[1] >= RSILower);
 
    bool trendBull = true;
    bool trendBear = true;
@@ -730,6 +631,9 @@ void OnTick()
       trendBear = (trendClose < trend[1]);
    }
 
+   // Core entry math:
+   // 1) EMA crossover provides direction.
+   // 2) RSI boundaries gate trade quality without disabling one side of the market.
    bool buySignal = emaCrossUp && rsiBuySignal && trendBull;
    bool sellSignal = emaCrossDown && rsiSellSignal && trendBear;
 
