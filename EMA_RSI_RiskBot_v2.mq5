@@ -3,7 +3,7 @@
 //|              EMA crossover + RSI cross + ATR risk management     |
 //+------------------------------------------------------------------+
 #property strict
-#property version   "2.16"
+#property version   "2.20"
 
 #include <Trade/Trade.mqh>
 CTrade trade;
@@ -11,14 +11,11 @@ CTrade trade;
 // -------------------- Inputs --------------------
 input group "Signal Settings"
 input ENUM_TIMEFRAMES SignalTF = PERIOD_CURRENT; // follows tester/chart timeframe
-input int FastEMA = 9;
-input int SlowEMA = 21;
-input int EMASignalLookbackBars = 3; // allow EMA cross in recent bars
+input int FastEMA = 5;
+input int SlowEMA = 12;
+input int EMASignalLookbackBars = 1; // intraday: react to fresh crossover quickly
 input int RSIPeriod = 14;
-input double BuyRSIMin = 45.0;  // Buy only when RSI is in this momentum cushion
-input double BuyRSIMax = 65.0;
-input double SellRSIMin = 35.0; // Sell only when RSI is in this momentum cushion
-input double SellRSIMax = 55.0;
+input double RSIThreshold = 50.0; // buy if RSI > 50, sell if RSI < 50
 
 input group "Trend Filter (Higher Timeframe)"
 input bool UseTrendFilter = false;
@@ -27,8 +24,8 @@ input int TrendEMAPeriod = 200;
 
 input group "Volatility Stops (ATR)"
 input bool UseFixedPipTargets = true; // true => use StopLossPips/TakeProfitPips directly
-input double StopLossPips = 30.0;
-input double TakeProfitPips = 45.0;
+input double StopLossPips = 15.0;
+input double TakeProfitPips = 15.0;
 input int ATRPeriod = 14;
 input double SL_ATR_Mult = 1.5;
 input double TP_ATR_Mult = 2.2;
@@ -43,13 +40,13 @@ input double FixedLots = 0.01;
 input group "Execution Safety"
 input int MaxSpreadPoints = 25;
 input int SlippagePoints = 10;
-input int CooldownBars = 5;
+input int CooldownBars = 0;
 input bool OnePositionPerSymbol = true;
 input long MagicNumber = 20260622;
 
 input group "Account Protection"
 input double MaxDailyLossPct = 3.0;
-input int MaxTradesPerDay = 3;
+input int MaxTradesPerDay = 20;
 
 input group "Trade Management"
 input bool UseBreakEven = true;
@@ -262,38 +259,51 @@ bool HasOpenPositionForEA()
    return false;
 }
 
-bool HasBullishSetup(const double &fastSeries[], const double &slowSeries[], const double &rsiSeries[],
-                     int lookbackBars, double rsiMin, double rsiMax)
+bool HasBullishCrossover(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
 {
-   int size = MathMin(ArraySize(fastSeries), MathMin(ArraySize(slowSeries), ArraySize(rsiSeries)));
+   int size = MathMin(ArraySize(fastSeries), ArraySize(slowSeries));
    if(size < 3) return false;
 
    int maxShift = MathMin(lookbackBars, size - 2);
    for(int shift = 1; shift <= maxShift; shift++)
    {
       bool crossUp = (fastSeries[shift] > slowSeries[shift] && fastSeries[shift + 1] <= slowSeries[shift + 1]);
-      bool trendUp = (fastSeries[shift] > slowSeries[shift]);
-      bool rsiInRange = (rsiSeries[shift] >= rsiMin && rsiSeries[shift] <= rsiMax);
-      if(crossUp && trendUp && rsiInRange)
+      if(crossUp)
          return true;
    }
    return false;
 }
 
-bool HasBearishSetup(const double &fastSeries[], const double &slowSeries[], const double &rsiSeries[],
-                     int lookbackBars, double rsiMin, double rsiMax)
+bool HasBearishCrossover(const double &fastSeries[], const double &slowSeries[], int lookbackBars)
 {
-   int size = MathMin(ArraySize(fastSeries), MathMin(ArraySize(slowSeries), ArraySize(rsiSeries)));
+   int size = MathMin(ArraySize(fastSeries), ArraySize(slowSeries));
    if(size < 3) return false;
 
    int maxShift = MathMin(lookbackBars, size - 2);
    for(int shift = 1; shift <= maxShift; shift++)
    {
       bool crossDown = (fastSeries[shift] < slowSeries[shift] && fastSeries[shift + 1] >= slowSeries[shift + 1]);
-      bool trendDown = (fastSeries[shift] < slowSeries[shift]);
-      bool rsiInRange = (rsiSeries[shift] >= rsiMin && rsiSeries[shift] <= rsiMax);
-      if(crossDown && trendDown && rsiInRange)
+      if(crossDown)
          return true;
+   }
+   return false;
+}
+
+bool GetOpenPositionForEA(ENUM_POSITION_TYPE &typeOut)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(!PositionSelectByTicket(ticket)) continue;
+
+      string sym = PositionGetString(POSITION_SYMBOL);
+      long mg = PositionGetInteger(POSITION_MAGIC);
+      if(sym == _Symbol && mg == MagicNumber)
+      {
+         typeOut = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+         return true;
+      }
    }
    return false;
 }
@@ -533,9 +543,7 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    if(EMASignalLookbackBars < 1)
       return INIT_PARAMETERS_INCORRECT;
-   if(BuyRSIMin < 0.0 || BuyRSIMax > 100.0 || SellRSIMin < 0.0 || SellRSIMax > 100.0)
-      return INIT_PARAMETERS_INCORRECT;
-   if(BuyRSIMin >= BuyRSIMax || SellRSIMin >= SellRSIMax)
+   if(RSIThreshold <= 0.0 || RSIThreshold >= 100.0)
       return INIT_PARAMETERS_INCORRECT;
    if(StopLossPips <= 0.0 || TakeProfitPips <= 0.0)
       return INIT_PARAMETERS_INCORRECT;
@@ -603,9 +611,6 @@ void OnTick()
    if(!InTradingSession()) return;
    if(!SpreadIsOK()) return;
    if(!IsNewSignalBar()) return;
-   if(!CooldownPassed()) return;
-   if(gTradesToday >= MaxTradesPerDay) return;
-   if(OnePositionPerSymbol && hasOpenPositionNow) return;
 
    double fast[], slow[], rsi[], atr[];
    ArraySetAsSeries(fast, true);
@@ -623,8 +628,10 @@ void OnTick()
    if(c1 < signalBars || c2 < signalBars || c3 < signalBars || c4 < 3) return;
    if(atr[1] <= 0.0) return;
 
-   bool bullishSetup = HasBullishSetup(fast, slow, rsi, EMASignalLookbackBars, BuyRSIMin, BuyRSIMax);
-   bool bearishSetup = HasBearishSetup(fast, slow, rsi, EMASignalLookbackBars, SellRSIMin, SellRSIMax);
+   bool bullishCross = HasBullishCrossover(fast, slow, EMASignalLookbackBars);
+   bool bearishCross = HasBearishCrossover(fast, slow, EMASignalLookbackBars);
+   bool rsiBull = (rsi[1] > RSIThreshold);
+   bool rsiBear = (rsi[1] < RSIThreshold);
 
    bool trendBull = true;
    bool trendBear = true;
@@ -642,15 +649,54 @@ void OnTick()
       trendBear = (trendClose < trend[1]);
    }
 
-   // Core entry math:
-   // 1) EMA crossover and trend side define direction.
-   // 2) RSI cushion ranges remove weak fake-outs.
-   // 3) Both long and short paths are evaluated independently.
-   bool buySignal = bullishSetup && trendBull;
-   bool sellSignal = bearishSetup && trendBear;
+   // Core intraday entry math:
+   // 1) EMA(5/12) crossover sets direction.
+   // 2) RSI is a directional filter only: >50 bullish, <50 bearish.
+   bool buySignal = bullishCross && rsiBull && trendBull;
+   bool sellSignal = bearishCross && rsiBear && trendBear;
 
-   if(buySignal)
-      OpenBuy(atr[1]);
-   else if(sellSignal)
-      OpenSell(atr[1]);
+   // Reverse-crossover flip logic:
+   // If a position is open and opposite setup appears, close immediately and flip.
+   if(hasOpenPositionNow && OnePositionPerSymbol)
+   {
+      ENUM_POSITION_TYPE openType = POSITION_TYPE_BUY;
+      if(GetOpenPositionForEA(openType))
+      {
+         if(openType == POSITION_TYPE_BUY && sellSignal)
+         {
+            if(trade.PositionClose(_Symbol))
+            {
+               gHadOpenPosition = false;
+               OpenSell(atr[1]);
+               gHadOpenPosition = HasOpenPositionForEA();
+            }
+            else
+            {
+               Print("Failed to close BUY for flip. Retcode=", trade.ResultRetcode(),
+                     " ", trade.ResultRetcodeDescription(), " Error=", _LastError);
+            }
+         }
+         else if(openType == POSITION_TYPE_SELL && buySignal)
+         {
+            if(trade.PositionClose(_Symbol))
+            {
+               gHadOpenPosition = false;
+               OpenBuy(atr[1]);
+               gHadOpenPosition = HasOpenPositionForEA();
+            }
+            else
+            {
+               Print("Failed to close SELL for flip. Retcode=", trade.ResultRetcode(),
+                     " ", trade.ResultRetcodeDescription(), " Error=", _LastError);
+            }
+         }
+      }
+      return;
+   }
+
+   if(!CooldownPassed()) return;
+   if(gTradesToday >= MaxTradesPerDay) return;
+
+   if(buySignal) OpenBuy(atr[1]);
+   else if(sellSignal) OpenSell(atr[1]);
 }
