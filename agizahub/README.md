@@ -349,6 +349,9 @@ Expected outcome:
 - API perimeter:
   - HTTPS-only enforcement in production (`BLOCK_NON_HTTPS_REQUESTS=true`)
   - CORS allowlist support (`CORS_ALLOWED_ORIGINS=https://yourapp.com,https://admin.yourapp.com`)
+- WAHA reliability:
+  - session watchdog cron every 5 minutes (`WAHA_SESSION_STATUS_PATH`, `WAHA_SESSION_START_PATH`)
+  - outbound retry queue for failed proactive sends (`outbound_message_queue`)
 - Abuse prevention:
   - sender activity telemetry persisted in `sender_abuse_controls` (no automatic mute/ban)
 - Admin security:
@@ -361,6 +364,7 @@ Expected outcome:
     - `broadcast buyers <message>` (promo blast)
 - Registration security:
   - phone-owner OTP gate on first contact (4-digit verification before onboarding)
+  - Kenyan phone normalization for all inbound/admin/payment numbers (`07xx`, `01xx`, `+254`, `254`, and 9-digit local forms)
 - Payment integrity:
   - callback amount mismatch detection (expected STK amount vs callback amount)
   - duplicate `MpesaReceiptNumber` replay blocking
@@ -376,13 +380,19 @@ Expected outcome:
   - `search <item>` / `compare <item>` / `detail <catalog_item_id>`
   - `wishlist add <catalog_item_id>`, `wishlist`, `wishlist remove <catalog_item_id>`
   - `cart add <catalog_item_id> <qty>`, `cart`, `checkout`, `cart clear`
+  - `alert me <catalog_item_id>` (back-in-stock notification)
+  - `set address <text>`, `my address`
+  - `language en` / `language sw`
   - `reorder` (repeat last order)
+  - `schedule <order_id> <YYYY-MM-DD HH:mm>`
   - `status [order_id]`, `rate <order_id> <1-5> [comment]`
   - `my referral`, `refer <code>`, `points`
 - Supplier:
   - `/update price <item_id> <new_price>`, `my prices`
   - `delete item <item_id>`
   - `lowstock <item_id> <threshold>`
+  - `flash sale <item_id> <discount_percent> <hours>`
+  - `promote item <item_id> <hours>`
   - `payout request <amount>`
 - Transporter:
   - `jobs`, `claim <order_id>`
@@ -391,4 +401,8 @@ Expected outcome:
 - Admin:
   - `release <order_id>`, `hold <order_id>`, `approve <order_id>`, `reject <order_id>`
   - `payout approve <request_id>`
-  - `broadcast buyers <message>`
+  - `broadcast buyers <message>`, `broadcast all <message>`
+  - `revenue` (today's dashboard)
+  - `override <order_id> <payment_status|settlement_status|distribution_status|order_progress_status> <VALUE>`
+  - `force refund <order_id>`, `close order <order_id>`
+  - `set tier <seller_masked_id> <free|premium>`

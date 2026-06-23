@@ -7,6 +7,10 @@ const {
 const {
   runDailySellerSalesReports,
 } = require("../services/dailySellerReportService");
+const {
+  retryFailedOutboundMessages,
+} = require("../services/outboundMessageQueueService");
+const { runWahaSessionWatchdog } = require("../services/wahaWatchdogService");
 const logger = require("../services/logger");
 
 const startSchedulers = () => {
@@ -45,6 +49,32 @@ const startSchedulers = () => {
       logger.info("Daily seller sales reports finished", result);
     } catch (error) {
       logger.error("Daily seller sales reports failed", {
+        error: error.message,
+      });
+    }
+  });
+
+  cron.schedule("*/1 * * * *", async () => {
+    try {
+      const result = await retryFailedOutboundMessages();
+      if (result.scanned > 0 || result.failed > 0) {
+        logger.info("Outbound message retry run finished", result);
+      }
+    } catch (error) {
+      logger.error("Outbound message retry run failed", {
+        error: error.message,
+      });
+    }
+  });
+
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const result = await runWahaSessionWatchdog();
+      if (result.restarted) {
+        logger.warn("WAHA session watchdog restarted a session", result);
+      }
+    } catch (error) {
+      logger.error("WAHA session watchdog failed", {
         error: error.message,
       });
     }

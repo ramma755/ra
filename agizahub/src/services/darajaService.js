@@ -1,5 +1,6 @@
 const axios = require("axios");
 const env = require("../config/env");
+const { normalisePhone } = require("./phoneService");
 
 let tokenCache = {
   token: null,
@@ -7,12 +8,7 @@ let tokenCache = {
 };
 
 const normalizeMsisdn = (value) => {
-  const digits = (value || "").replace(/[^\d]/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("254")) return digits;
-  if (digits.startsWith("0")) return `254${digits.slice(1)}`;
-  if (digits.startsWith("7")) return `254${digits}`;
-  return digits;
+  return normalisePhone(value) || "";
 };
 
 const getTimestamp = () => {

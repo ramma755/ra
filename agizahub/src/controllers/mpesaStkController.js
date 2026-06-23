@@ -24,7 +24,7 @@ const handleStkCallback = async (req, res, next) => {
     const mpesaReceipt = metadata.MpesaReceiptNumber || null;
     const amount = Number(metadata.Amount || 0);
     let buyerReceipt = null;
-    let lowStockAlert = null;
+    const lowStockAlerts = [];
 
     await transaction(async (client) => {
       const txnResult = await client.query(
@@ -143,7 +143,56 @@ const handleStkCallback = async (req, res, next) => {
           );
         }
 
-        if (order.catalog_item_id) {
+        const lineItems = await client.query(
+          `
+            SELECT
+              li.catalog_item_id,
+              li.quantity,
+              c.seller_masked_id,
+              c.commodity_name
+            FROM order_line_items li
+            JOIN catalog_items c ON c.id = li.catalog_item_id
+            WHERE li.order_id = $1
+          `,
+          [orderId]
+        );
+
+        if (lineItems.rowCount > 0) {
+          for (const line of lineItems.rows) {
+            const stockResult = await client.query(
+              `
+                UPDATE catalog_items
+                SET stock_quantity = GREATEST(stock_quantity - $2, 0),
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING commodity_name, stock_quantity, low_stock_threshold, seller_masked_id
+              `,
+              [line.catalog_item_id, Number(line.quantity || 0)]
+            );
+            if (stockResult.rowCount > 0) {
+              const stock = stockResult.rows[0];
+              if (Number(stock.stock_quantity || 0) <= Number(stock.low_stock_threshold || 0)) {
+                const sellerResult = await client.query(
+                  `
+                    SELECT phone_number
+                    FROM platform_users
+                    WHERE masked_id = $1
+                    LIMIT 1
+                  `,
+                  [stock.seller_masked_id]
+                );
+                if (sellerResult.rowCount > 0 && sellerResult.rows[0].phone_number) {
+                  lowStockAlerts.push({
+                    toPhone: sellerResult.rows[0].phone_number,
+                    commodityName: stock.commodity_name,
+                    remainingStock: Number(stock.stock_quantity || 0),
+                    threshold: Number(stock.low_stock_threshold || 0),
+                  });
+                }
+              }
+            }
+          }
+        } else if (order.catalog_item_id) {
           const stockResult = await client.query(
             `
               UPDATE catalog_items
@@ -167,12 +216,12 @@ const handleStkCallback = async (req, res, next) => {
                 [stock.seller_masked_id]
               );
               if (sellerResult.rowCount > 0 && sellerResult.rows[0].phone_number) {
-                lowStockAlert = {
+                lowStockAlerts.push({
                   toPhone: sellerResult.rows[0].phone_number,
                   commodityName: stock.commodity_name,
                   remainingStock: Number(stock.stock_quantity || 0),
                   threshold: Number(stock.low_stock_threshold || 0),
-                };
+                });
               }
             }
           }
@@ -213,17 +262,19 @@ const handleStkCallback = async (req, res, next) => {
       });
     }
 
-    if (env.whatsappGateway.provider === "WAHA" && lowStockAlert?.toPhone) {
-      await sendGatewayReply({
-        provider: "WAHA",
-        toPhone: lowStockAlert.toPhone,
-        message: [
-          "⚠️ Low stock warning",
-          `${lowStockAlert.commodityName} is now ${lowStockAlert.remainingStock} units.`,
-          `Threshold: ${lowStockAlert.threshold}`,
-          "Top up stock to avoid missed orders.",
-        ].join("\n"),
-      });
+    if (env.whatsappGateway.provider === "WAHA" && lowStockAlerts.length > 0) {
+      for (const lowStockAlert of lowStockAlerts) {
+        await sendGatewayReply({
+          provider: "WAHA",
+          toPhone: lowStockAlert.toPhone,
+          message: [
+            "⚠️ Low stock warning",
+            `${lowStockAlert.commodityName} is now ${lowStockAlert.remainingStock} units.`,
+            `Threshold: ${lowStockAlert.threshold}`,
+            "Top up stock to avoid missed orders.",
+          ].join("\n"),
+        });
+      }
     }
 
     logger.info("Processed STK callback", {
