@@ -7,7 +7,7 @@ const {
   parseMerchantCatalogMessage,
   parseDisputeIntentMessage,
 } = require("../services/aiParserService");
-const { initiateStkPush, normalizeMsisdn } = require("../services/darajaService");
+const { initiateStkPush, normalizeMsisdn, sendB2CPayment } = require("../services/darajaService");
 const {
   roleFromChoice,
   paymentModeFromChoice,
@@ -396,6 +396,8 @@ const adminTokenRequestPattern = /^(?:admin\s+(?:token|otp|login)|token)$/i;
 const adminTokenVerifyPattern = /^(?:verify|code)\s+(\d{4})$/i;
 const adminLogoutPattern = /^(?:admin\s+logout|logout)$/i;
 const adminUnmutePattern = /^(?:unmute|unban)\s+(\+?\d{9,15})$/i;
+const adminBroadcastBuyersPattern = /^(?:broadcast\s+buyers|promo\s+buyers)\s+(.+)/i;
+const adminPayoutApprovePattern = /^(?:payout\s+approve)\s+(\d+)$/i;
 const adminAcknowledgeText = () =>
   `Admin acknowledged: ${env.admin.name}. I am ready to execute privileged commands.`;
 
@@ -430,6 +432,28 @@ const claimPattern = /^(?:claim|chukua)\s+([a-zA-Z0-9-]+)/i;
 const deliverPattern = /^(?:deliver|wasilisha)\s+([a-zA-Z0-9-]+)\s+((?:AGZ-\d{6})|\d{4})$/i;
 const supplierCatalogTriggerPattern =
   /^(?:update(\s+my)?\s+(items|catalog|catalogue|stock)|add\s+(catalog|catalogue)|catalog(\s+update)?|sasisha\s+(?:bidhaa|catalog|catalogue|stock)|ongeza\s+(?:bidhaa|catalog|catalogue|stock))$/i;
+const categoriesPattern = /^(?:categories|category|menu|departments|idara|kategoria)$/i;
+const categorySelectPattern = /^(?:category|idara)\s+(.+)$/i;
+const comparePattern = /^(?:compare|linganisha)\s+(.+)$/i;
+const detailPattern = /^(?:detail|details|maelezo)\s+(\d+)$/i;
+const wishlistAddPattern = /^(?:wishlist\s+add|fav|favourite|ongeza\s+penda)\s+(\d+)$/i;
+const wishlistRemovePattern = /^(?:wishlist\s+remove|remove\s+fav|ondoa\s+penda)\s+(\d+)$/i;
+const wishlistListPattern = /^(?:wishlist|favourites|favorites|penda|vipendwa)$/i;
+const cartAddPattern = /^(?:cart\s+add|ongeza\s+cart)\s+(\d+)\s+(\d+(?:\.\d+)?)$/i;
+const cartViewPattern = /^(?:cart|view\s+cart|cart\s+view|kikapu)$/i;
+const cartClearPattern = /^(?:cart\s+clear|futa\s+cart)$/i;
+const cartCheckoutPattern = /^(?:checkout|checkout\s+cart|lipa)$/i;
+const reorderPattern = /^(?:reorder|repeat\s+last\s+order|agiza\s+tena)$/i;
+const statusPattern = /^(?:status|order\s+status|hali)(?:\s+([a-zA-Z0-9-]+))?$/i;
+const packedPattern = /^(?:packed|imefungwa)\s+([a-zA-Z0-9-]+)$/i;
+const enRoutePattern = /^(?:enroute|onroute|njiani)\s+([a-zA-Z0-9-]+)$/i;
+const ratePattern = /^(?:rate|rating|kadiria)\s+([a-zA-Z0-9-]+)\s+([1-5])(?:\s+(.+))?$/i;
+const pointsPattern = /^(?:points|loyalty|pointi)$/i;
+const referralCodePattern = /^(?:my\s+referral|referral\s+code|mwaliko)$/i;
+const referralApplyPattern = /^(?:refer|invite|tumia\s+ref)\s+([a-zA-Z0-9]{4,20})$/i;
+const payoutRequestPattern = /^(?:payout\s+request|withdraw|toa\s+pesa)\s+(\d+(?:\.\d+)?)$/i;
+const deleteItemPattern = /^(?:delete\s+item|remove\s+item|futa\s+item)\s+(\d+)$/i;
+const updateStockThresholdPattern = /^(?:lowstock|stock\s+threshold|kizingiti)\s+(\d+)\s+(\d+)$/i;
 
 const normalizeOrderIdFromText = (text) => (text || "").trim();
 
@@ -1039,7 +1063,7 @@ const listCatalogOffersMessage = async () => {
     lines.push(
       "",
       `${item.commodity_name}`,
-      `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id})`,
+      `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id}) [VERIFIED]`,
       `Business Type: ${item.business_type || "WHOLESALE"}`,
       `Price: KSh ${Number(item.price_per_unit).toLocaleString()} per ${item.unit_measure}`,
       `Stock: ${Number(item.stock_quantity || 0).toLocaleString()}`,
@@ -1049,6 +1073,166 @@ const listCatalogOffersMessage = async () => {
     );
   }
   return lines.join("\n");
+};
+
+const listCategoriesMessage = async () => {
+  const result = await query(
+    `
+      SELECT business_type, COUNT(*) AS item_count
+      FROM catalog_items
+      WHERE is_active = TRUE
+        AND stock_quantity > 0
+      GROUP BY business_type
+      ORDER BY business_type ASC
+    `
+  );
+  if (result.rowCount === 0) {
+    return "No active categories available right now.";
+  }
+  const mapping = {
+    WHOLESALE: "Wholesale",
+    RETAILER: "Retail",
+    RESTAURANT: "Restaurant",
+    GENERAL_SERVICES: "General Services",
+  };
+  const lines = ["Browse categories (reply with: category <number>):"];
+  result.rows.forEach((row, idx) => {
+    lines.push(`${idx + 1}. ${mapping[row.business_type] || row.business_type} (${row.item_count} items)`);
+  });
+  return lines.join("\n");
+};
+
+const resolveCategoryType = async (input) => {
+  const value = String(input || "").trim();
+  const byNumber = Number(value);
+  const categories = ["WHOLESALE", "RETAILER", "RESTAURANT", "GENERAL_SERVICES"];
+  if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= categories.length) {
+    return categories[byNumber - 1];
+  }
+  const upper = value.toUpperCase().replace(/\s+/g, "_");
+  if (categories.includes(upper)) return upper;
+  if (upper === "GENERAL") return "GENERAL_SERVICES";
+  return null;
+};
+
+const listCatalogByCategoryMessage = async ({ categoryType }) => {
+  const result = await query(
+    `
+      SELECT
+        c.id AS catalog_item_id,
+        c.commodity_name,
+        c.price_per_unit,
+        c.stock_quantity,
+        c.unit_measure,
+        u.masked_id,
+        u.company_name,
+        COALESCE(u.merchant_agreement_status, 'PENDING') AS merchant_agreement_status
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.is_active = TRUE
+        AND c.stock_quantity > 0
+        AND c.business_type = $1
+        AND u.user_type = 'SUPPLIER'
+      ORDER BY c.price_per_unit ASC, c.updated_at DESC
+      LIMIT 20
+    `,
+    [categoryType]
+  );
+  if (result.rowCount === 0) {
+    return `No active items found under ${categoryType}.`;
+  }
+  const lines = [`${categoryType} listings:`];
+  for (const row of result.rows) {
+    const verified = row.merchant_agreement_status === "ACCEPTED" ? " [VERIFIED]" : "";
+    lines.push(
+      "",
+      `ID ${row.catalog_item_id}: ${row.commodity_name}`,
+      `Seller: ${row.company_name || `#${row.masked_id}`}${verified}`,
+      `Price: KSh ${Number(row.price_per_unit).toLocaleString()} / ${row.unit_measure || "unit"}`,
+      `Stock: ${Number(row.stock_quantity || 0).toLocaleString()}`
+    );
+  }
+  return lines.join("\n");
+};
+
+const compareItemPricesMessage = async ({ searchTerm }) => {
+  const result = await query(
+    `
+      SELECT
+        c.id AS catalog_item_id,
+        c.commodity_name,
+        c.price_per_unit,
+        c.stock_quantity,
+        c.unit_measure,
+        c.location_label,
+        u.masked_id,
+        u.company_name
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.is_active = TRUE
+        AND c.stock_quantity > 0
+        AND u.user_type = 'SUPPLIER'
+        AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
+        AND LOWER(c.commodity_name) LIKE CONCAT('%', LOWER($1), '%')
+      ORDER BY c.price_per_unit ASC
+      LIMIT 3
+    `,
+    [searchTerm]
+  );
+  if (result.rowCount === 0) {
+    return `No comparison offers found for "${searchTerm}".`;
+  }
+  const lines = [`Top ${result.rowCount} price comparison for "${searchTerm}":`];
+  result.rows.forEach((row, idx) => {
+    lines.push(
+      "",
+      `${idx + 1}. ${row.company_name || `Seller #${row.masked_id}`} - KSh ${Number(
+        row.price_per_unit
+      ).toLocaleString()}`,
+      `Item ID: ${row.catalog_item_id} | Stock: ${Number(row.stock_quantity || 0).toLocaleString()}`,
+      `${row.location_label || "Location"} | ${row.unit_measure || "unit"}`
+    );
+  });
+  return lines.join("\n");
+};
+
+const productDetailCardMessage = async ({ catalogItemId }) => {
+  const result = await query(
+    `
+      SELECT
+        c.id,
+        c.commodity_name,
+        c.price_per_unit,
+        c.stock_quantity,
+        c.unit_measure,
+        c.location_label,
+        c.business_type,
+        c.catalog_metadata,
+        u.masked_id,
+        u.company_name,
+        COALESCE(u.merchant_agreement_status, 'PENDING') AS merchant_agreement_status
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.id = $1
+      LIMIT 1
+    `,
+    [catalogItemId]
+  );
+  if (result.rowCount === 0) return "Product not found.";
+  const row = result.rows[0];
+  const verified = row.merchant_agreement_status === "ACCEPTED" ? "Yes" : "No";
+  return [
+    `Product Detail #${row.id}`,
+    `Name: ${row.commodity_name}`,
+    `Seller: ${row.company_name || `#${row.masked_id}`}`,
+    `Verified Seller: ${verified}`,
+    `Category: ${row.business_type || "N/A"}`,
+    `Price: KSh ${Number(row.price_per_unit).toLocaleString()} / ${row.unit_measure || "unit"}`,
+    `Stock: ${Number(row.stock_quantity || 0).toLocaleString()} (${
+      Number(row.stock_quantity || 0) > 0 ? "IN STOCK" : "OUT OF STOCK"
+    })`,
+    `Location: ${row.location_label || "N/A"}`,
+  ].join("\n");
 };
 
 const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
@@ -1087,6 +1271,191 @@ const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
     );
   }
   return lines.join("\n");
+};
+
+const getCartItemsForBuyer = async ({ buyerMaskedId }) => {
+  const result = await query(
+    `
+      SELECT
+        ci.id,
+        ci.catalog_item_id,
+        ci.seller_masked_id,
+        ci.quantity,
+        c.commodity_name,
+        c.price_per_unit,
+        c.stock_quantity,
+        c.unit_measure,
+        u.company_name
+      FROM cart_items ci
+      JOIN catalog_items c ON c.id = ci.catalog_item_id
+      JOIN platform_users u ON u.masked_id = ci.seller_masked_id
+      WHERE ci.buyer_masked_id = $1
+      ORDER BY ci.updated_at DESC
+    `,
+    [buyerMaskedId]
+  );
+  return result.rows;
+};
+
+const cartSummaryMessage = ({ items }) => {
+  if (!items || items.length === 0) {
+    return "Cart is empty. Add items with: cart add <item_id> <qty>";
+  }
+  let total = 0;
+  const lines = ["Your shopping cart:"];
+  items.forEach((item, idx) => {
+    const lineTotal = Number(item.quantity) * Number(item.price_per_unit || 0);
+    total += lineTotal;
+    lines.push(
+      "",
+      `${idx + 1}. ${item.commodity_name} (ID ${item.catalog_item_id})`,
+      `Seller: ${item.company_name || `#${item.seller_masked_id}`}`,
+      `Qty: ${Number(item.quantity)} x KSh ${Number(item.price_per_unit).toLocaleString()} = KSh ${lineTotal.toLocaleString()}`
+    );
+  });
+  lines.push("", `Estimated total: KSh ${total.toLocaleString()}`);
+  lines.push("Next: checkout");
+  return lines.join("\n");
+};
+
+const addToCart = async ({ buyerMaskedId, catalogItemId, quantity }) => {
+  const itemResult = await query(
+    `
+      SELECT id, seller_masked_id, stock_quantity
+      FROM catalog_items
+      WHERE id = $1
+        AND is_active = TRUE
+      LIMIT 1
+    `,
+    [catalogItemId]
+  );
+  if (itemResult.rowCount === 0) {
+    throw new Error("Catalog item not found.");
+  }
+  const item = itemResult.rows[0];
+  if (Number(item.stock_quantity || 0) <= 0) {
+    throw new Error("Item is out of stock.");
+  }
+
+  const existing = await getCartItemsForBuyer({ buyerMaskedId });
+  if (existing.length > 0) {
+    const sellerSet = new Set(existing.map((row) => row.seller_masked_id));
+    if (!sellerSet.has(item.seller_masked_id)) {
+      throw new Error(
+        "Cart currently supports one seller per checkout. Clear cart first or add from the same seller."
+      );
+    }
+  }
+
+  await query(
+    `
+      INSERT INTO cart_items (
+        buyer_masked_id,
+        catalog_item_id,
+        seller_masked_id,
+        quantity,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      ON CONFLICT (buyer_masked_id, catalog_item_id)
+      DO UPDATE SET
+        quantity = EXCLUDED.quantity,
+        updated_at = NOW()
+    `,
+    [buyerMaskedId, catalogItemId, item.seller_masked_id, quantity]
+  );
+};
+
+const clearCart = async ({ buyerMaskedId }) => {
+  await query(`DELETE FROM cart_items WHERE buyer_masked_id = $1`, [buyerMaskedId]);
+};
+
+const addWishlistItem = async ({ buyerMaskedId, catalogItemId }) => {
+  await query(
+    `
+      INSERT INTO wishlist_items (buyer_masked_id, catalog_item_id)
+      VALUES ($1, $2)
+      ON CONFLICT (buyer_masked_id, catalog_item_id) DO NOTHING
+    `,
+    [buyerMaskedId, catalogItemId]
+  );
+};
+
+const removeWishlistItem = async ({ buyerMaskedId, catalogItemId }) => {
+  await query(
+    `
+      DELETE FROM wishlist_items
+      WHERE buyer_masked_id = $1
+        AND catalog_item_id = $2
+    `,
+    [buyerMaskedId, catalogItemId]
+  );
+};
+
+const wishlistSummaryMessage = async ({ buyerMaskedId }) => {
+  const result = await query(
+    `
+      SELECT
+        w.catalog_item_id,
+        c.commodity_name,
+        c.price_per_unit,
+        c.stock_quantity,
+        c.unit_measure,
+        u.company_name
+      FROM wishlist_items w
+      JOIN catalog_items c ON c.id = w.catalog_item_id
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE w.buyer_masked_id = $1
+      ORDER BY w.created_at DESC
+      LIMIT 30
+    `,
+    [buyerMaskedId]
+  );
+  if (result.rowCount === 0) return "Wishlist is empty.";
+  const lines = ["Your wishlist items:"];
+  result.rows.forEach((row, idx) => {
+    lines.push(
+      "",
+      `${idx + 1}. ${row.commodity_name} (ID ${row.catalog_item_id})`,
+      `Seller: ${row.company_name}`,
+      `Price: KSh ${Number(row.price_per_unit || 0).toLocaleString()} / ${row.unit_measure || "unit"} | Stock: ${
+        Number(row.stock_quantity || 0) > 0 ? "IN" : "OUT"
+      }`
+    );
+  });
+  return lines.join("\n");
+};
+
+const ensureReferralCode = async ({ userMaskedId }) => {
+  const existing = await query(
+    `SELECT referral_code FROM referral_codes WHERE owner_masked_id = $1 LIMIT 1`,
+    [userMaskedId]
+  );
+  if (existing.rowCount > 0) return existing.rows[0].referral_code;
+  const code = `AGZ${userMaskedId}${Math.floor(100 + Math.random() * 900)}`;
+  await query(
+    `
+      INSERT INTO referral_codes (owner_masked_id, referral_code, created_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (owner_masked_id) DO NOTHING
+    `,
+    [userMaskedId, code]
+  );
+  return code;
+};
+
+const getLoyaltyBalance = async ({ buyerMaskedId }) => {
+  const result = await query(
+    `
+      SELECT points_balance
+      FROM loyalty_wallets
+      WHERE buyer_masked_id = $1
+      LIMIT 1
+    `,
+    [buyerMaskedId]
+  );
+  return Number(result.rows?.[0]?.points_balance || 0);
 };
 
 const searchCatalogRows = async ({ searchTerm, excludeSellerMaskedId = null }) => {
@@ -1265,6 +1634,85 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     const targetPhone = normalizeMsisdn(unmuteMatch[1]);
     await clearSenderBlocks({ phoneNumber: targetPhone });
     return `Security block cleared for ${targetPhone}.`;
+  }
+
+  const payoutApproveMatch = rawMessage.match(adminPayoutApprovePattern);
+  if (payoutApproveMatch) {
+    const requestId = Number(payoutApproveMatch[1]);
+    const requestResult = await query(
+      `
+        SELECT
+          r.id,
+          r.amount_kes,
+          r.status,
+          u.payout_phone,
+          u.company_name,
+          u.masked_id
+        FROM seller_payout_requests r
+        JOIN platform_users u ON u.masked_id = r.seller_masked_id
+        WHERE r.id = $1
+        LIMIT 1
+      `,
+      [requestId]
+    );
+    if (requestResult.rowCount === 0) {
+      return `Payout request #${requestId} not found.`;
+    }
+    const request = requestResult.rows[0];
+    if (request.status !== "PENDING") {
+      return `Payout request #${requestId} is already ${request.status}.`;
+    }
+    if (!request.payout_phone) {
+      await query(
+        `
+          UPDATE seller_payout_requests
+          SET status = 'FAILED',
+              failure_reason = 'Missing seller payout phone',
+              approved_by_phone = $2,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [requestId, senderPhone]
+      );
+      return `Payout request #${requestId} failed: seller payout phone missing.`;
+    }
+    try {
+      const b2c = await sendB2CPayment({
+        phoneNumber: request.payout_phone,
+        amount: Number(request.amount_kes),
+        remarks: `Seller payout #${requestId}`,
+        occasion: "Seller withdrawal",
+      });
+      const reference =
+        b2c.OriginatorConversationID || b2c.ConversationID || b2c.ResponseDescription || null;
+      await query(
+        `
+          UPDATE seller_payout_requests
+          SET status = 'PAID',
+              approved_by_phone = $2,
+              disbursement_reference = $3,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [requestId, senderPhone, reference]
+      );
+      return `Payout #${requestId} paid to ${request.company_name || request.masked_id} (KSh ${Number(
+        request.amount_kes
+      ).toLocaleString()}).`;
+    } catch (error) {
+      await query(
+        `
+          UPDATE seller_payout_requests
+          SET status = 'FAILED',
+              approved_by_phone = $2,
+              failure_reason = $3,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [requestId, senderPhone, error.message]
+      );
+      return `Payout #${requestId} failed: ${error.message}`;
+    }
   }
 
   return null;
@@ -2035,6 +2483,31 @@ const createTransportOnlyOrder = async ({
         requesterCommissionKes,
         transporterCommissionPercent,
         transporterCommissionKes,
+      ]
+    );
+
+    await client.query(
+      `
+        INSERT INTO order_line_items (
+          order_id,
+          catalog_item_id,
+          seller_masked_id,
+          commodity_name,
+          unit_price_kes,
+          quantity,
+          line_total_kes,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `,
+      [
+        orderInsert.rows[0].id,
+        catalogItem.id,
+        seller.masked_id,
+        catalogItem.commodity_name,
+        catalogItem.price_per_unit,
+        quantity,
+        itemSubtotal,
       ]
     );
 
@@ -3551,6 +4024,57 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
 
+      const broadcastMatch = rawMessage.match(adminBroadcastBuyersPattern);
+      if (broadcastMatch) {
+        const promoText = String(broadcastMatch[1] || "").trim();
+        if (!promoText) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: `${adminAcknowledgeText()}\nUse: broadcast buyers <message>`,
+          });
+        }
+        const buyers = await query(
+          `
+            SELECT DISTINCT phone_number
+            FROM platform_users
+            WHERE user_type = 'BUYER'
+              AND current_step = 'COMPLETED'
+              AND phone_number IS NOT NULL
+          `
+        );
+        let sentCount = 0;
+        for (const row of buyers.rows) {
+          const ok = await safeNotifyWhatsappPhone({
+            toPhone: row.phone_number,
+            message: `📣 AgizaHub Promo\n${promoText}`,
+          });
+          if (ok) sentCount += 1;
+        }
+        await query(
+          `
+            INSERT INTO promo_broadcasts (
+              created_by_phone,
+              target_role,
+              message_text,
+              status,
+              sent_count,
+              created_at,
+              sent_at
+            )
+            VALUES ($1, 'BUYER', $2, 'SENT', $3, NOW(), NOW())
+          `,
+          [senderPhone, promoText, sentCount]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: `${adminAcknowledgeText()}\nPromo broadcast sent to ${sentCount} buyers.`,
+        });
+      }
+
       const adminResponse = await handleAdminCommand(rawMessage, senderPhone);
       if (adminResponse) {
         return respondToUser({
@@ -3565,7 +4089,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message:
-          `${adminAcknowledgeText()}\nAdmin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>, Unban <Phone>.`,
+          `${adminAcknowledgeText()}\nAdmin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>, payout approve <RequestID>, broadcast buyers <message>.`,
       });
     }
 
@@ -4238,6 +4762,168 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
+    if (categoriesPattern.test(rawMessage.trim())) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await listCategoriesMessage(),
+      });
+    }
+
+    if (categorySelectPattern.test(rawMessage.trim())) {
+      const selected = rawMessage.match(categorySelectPattern);
+      const categoryType = await resolveCategoryType(selected?.[1]);
+      if (!categoryType) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Invalid category. Use: categories, then category <number>",
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await listCatalogByCategoryMessage({ categoryType }),
+      });
+    }
+
+    if (comparePattern.test(rawMessage.trim())) {
+      const match = rawMessage.match(comparePattern);
+      const searchTerm = String(match?.[1] || "").trim();
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await compareItemPricesMessage({ searchTerm }),
+      });
+    }
+
+    if (detailPattern.test(rawMessage.trim())) {
+      const match = rawMessage.match(detailPattern);
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await productDetailCardMessage({
+          catalogItemId: Number(match?.[1]),
+        }),
+      });
+    }
+
+    if (pointsPattern.test(rawMessage.trim()) && user.user_type === "BUYER") {
+      const points = await getLoyaltyBalance({ buyerMaskedId: user.masked_id });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Loyalty balance: ${points.toLocaleString()} points.`,
+      });
+    }
+
+    if (referralCodePattern.test(rawMessage.trim()) && user.user_type === "BUYER") {
+      const code = await ensureReferralCode({ userMaskedId: user.masked_id });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Your referral code: ${code}\nShare this. New buyers can use: refer ${code}`,
+      });
+    }
+
+    if (referralApplyPattern.test(rawMessage.trim()) && user.user_type === "BUYER") {
+      const refMatch = rawMessage.match(referralApplyPattern);
+      const code = String(refMatch?.[1] || "").trim();
+      const codeResult = await query(
+        `
+          SELECT owner_masked_id
+          FROM referral_codes
+          WHERE referral_code = $1
+          LIMIT 1
+        `,
+        [code]
+      );
+      if (codeResult.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Invalid referral code.",
+        });
+      }
+      const referrerMaskedId = codeResult.rows[0].owner_masked_id;
+      if (referrerMaskedId === user.masked_id) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "You cannot refer yourself.",
+        });
+      }
+      const existingReferral = await query(
+        `
+          SELECT id FROM referrals
+          WHERE referred_masked_id = $1
+          LIMIT 1
+        `,
+        [user.masked_id]
+      );
+      if (existingReferral.rowCount > 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Referral already linked for your account.",
+        });
+      }
+
+      await transaction(async (client) => {
+        await client.query(
+          `
+            INSERT INTO referrals (
+              referrer_masked_id,
+              referred_masked_id,
+              reward_points_granted,
+              created_at
+            )
+            VALUES ($1, $2, 50, NOW())
+          `,
+          [referrerMaskedId, user.masked_id]
+        );
+        await client.query(
+          `
+            INSERT INTO loyalty_wallets (buyer_masked_id, points_balance, updated_at)
+            VALUES ($1, 50, NOW())
+            ON CONFLICT (buyer_masked_id)
+            DO UPDATE SET
+              points_balance = loyalty_wallets.points_balance + 50,
+              updated_at = NOW()
+          `,
+          [referrerMaskedId]
+        );
+        await client.query(
+          `
+            INSERT INTO loyalty_points_ledger (
+              buyer_masked_id,
+              points_delta,
+              reason,
+              created_at
+            )
+            VALUES ($1, 50, 'Referral reward', NOW())
+          `,
+          [referrerMaskedId]
+        );
+      });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: "Referral linked successfully. Reward points credited to inviter.",
+      });
+    }
+
     if (user.user_type === "BUYER" && searchCommandPrefixPattern.test(rawMessage)) {
       const searchTerm = rawMessage.replace(searchCommandPrefixPattern, "").trim();
       if (!searchTerm) {
@@ -4359,6 +5045,100 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         message: `Price updated successfully. ID ${updateResult.rows[0].id} (${updateResult.rows[0].commodity_name}) is now KSh ${Number(
           updateResult.rows[0].price_per_unit
         ).toLocaleString()}. New buyer checkouts will use this updated price instantly.`,
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && deleteItemPattern.test(rawMessage.trim())) {
+      const match = rawMessage.match(deleteItemPattern);
+      const itemId = Number(match?.[1]);
+      const deleted = await query(
+        `
+          UPDATE catalog_items
+          SET is_active = FALSE,
+              updated_at = NOW()
+          WHERE id = $1
+            AND seller_masked_id = $2
+          RETURNING id, commodity_name
+        `,
+        [itemId, user.masked_id]
+      );
+      if (deleted.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Item not found in your catalog.",
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Item removed: ${deleted.rows[0].commodity_name} (ID ${deleted.rows[0].id}).`,
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && updateStockThresholdPattern.test(rawMessage.trim())) {
+      const match = rawMessage.match(updateStockThresholdPattern);
+      const itemId = Number(match?.[1]);
+      const threshold = Number(match?.[2]);
+      const updated = await query(
+        `
+          UPDATE catalog_items
+          SET low_stock_threshold = $3,
+              updated_at = NOW()
+          WHERE id = $1
+            AND seller_masked_id = $2
+          RETURNING commodity_name, low_stock_threshold
+        `,
+        [itemId, user.masked_id, threshold]
+      );
+      if (updated.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Item not found for threshold update.",
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Low stock threshold updated for ${updated.rows[0].commodity_name}: ${updated.rows[0].low_stock_threshold}.`,
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && payoutRequestPattern.test(rawMessage.trim())) {
+      const match = rawMessage.match(payoutRequestPattern);
+      const amount = Number(match?.[1]);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Invalid payout amount. Use: payout request <amount>",
+        });
+      }
+      await query(
+        `
+          INSERT INTO seller_payout_requests (
+            seller_masked_id,
+            amount_kes,
+            status,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, 'PENDING', NOW(), NOW())
+        `,
+        [user.masked_id, amount]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message:
+          "Payout request received and queued for admin approval. Admin can approve with: payout approve <request_id>.",
       });
     }
 
@@ -4518,6 +5298,253 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     }
 
     if (user.user_type === "BUYER") {
+      if (wishlistAddPattern.test(rawMessage.trim())) {
+        const match = rawMessage.match(wishlistAddPattern);
+        await addWishlistItem({
+          buyerMaskedId: user.masked_id,
+          catalogItemId: Number(match?.[1]),
+        });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Saved to wishlist.",
+        });
+      }
+
+      if (wishlistRemovePattern.test(rawMessage.trim())) {
+        const match = rawMessage.match(wishlistRemovePattern);
+        await removeWishlistItem({
+          buyerMaskedId: user.masked_id,
+          catalogItemId: Number(match?.[1]),
+        });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Removed from wishlist.",
+        });
+      }
+
+      if (wishlistListPattern.test(rawMessage.trim())) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: await wishlistSummaryMessage({ buyerMaskedId: user.masked_id }),
+        });
+      }
+
+      if (cartAddPattern.test(rawMessage.trim())) {
+        const match = rawMessage.match(cartAddPattern);
+        try {
+          await addToCart({
+            buyerMaskedId: user.masked_id,
+            catalogItemId: Number(match?.[1]),
+            quantity: Number(match?.[2]),
+          });
+        } catch (error) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: error.message,
+          });
+        }
+        const items = await getCartItemsForBuyer({ buyerMaskedId: user.masked_id });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: cartSummaryMessage({ items }),
+        });
+      }
+
+      if (cartViewPattern.test(rawMessage.trim())) {
+        const items = await getCartItemsForBuyer({ buyerMaskedId: user.masked_id });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: cartSummaryMessage({ items }),
+        });
+      }
+
+      if (cartClearPattern.test(rawMessage.trim())) {
+        await clearCart({ buyerMaskedId: user.masked_id });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Cart cleared.",
+        });
+      }
+
+      if (cartCheckoutPattern.test(rawMessage.trim())) {
+        const items = await getCartItemsForBuyer({ buyerMaskedId: user.masked_id });
+        if (items.length === 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Cart is empty.",
+          });
+        }
+        const firstItem = items[0];
+        const payload = await createOrderFromCatalogRequest({
+          buyer: user,
+          senderPhone,
+          rawMessage: `cart_checkout_${firstItem.catalog_item_id}`,
+          sellerMaskedId: firstItem.seller_masked_id,
+          quantity: Number(firstItem.quantity),
+          catalogItemId: Number(firstItem.catalog_item_id),
+        });
+        await notifySellerForLogisticsDecision({ payload });
+        await clearCart({ buyerMaskedId: user.masked_id });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message:
+            "Cart checkout created and sent to seller for stock/logistics confirmation. Payment prompt will follow confirmation.",
+        });
+      }
+
+      if (reorderPattern.test(rawMessage.trim())) {
+        const lastOrderResult = await query(
+          `
+            SELECT catalog_item_id, supplier_masked_id, quantity
+            FROM orders
+            WHERE buyer_masked_id = $1
+              AND catalog_item_id IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+          `,
+          [user.masked_id]
+        );
+        if (lastOrderResult.rowCount === 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "No previous catalog order found for reorder.",
+          });
+        }
+        const last = lastOrderResult.rows[0];
+        const payload = await createOrderFromCatalogRequest({
+          buyer: user,
+          senderPhone,
+          rawMessage: "reorder",
+          sellerMaskedId: last.supplier_masked_id,
+          quantity: Number(last.quantity || 1),
+          catalogItemId: Number(last.catalog_item_id),
+        });
+        await notifySellerForLogisticsDecision({ payload });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Repeat order placed. Seller has been notified for confirmation.",
+        });
+      }
+
+      if (statusPattern.test(rawMessage.trim())) {
+        const statusMatch = rawMessage.match(statusPattern);
+        const explicitOrder = statusMatch?.[1]
+          ? normalizeOrderIdFromText(statusMatch[1])
+          : null;
+        const statusResult = await query(
+          `
+            SELECT id, payment_status, settlement_status, distribution_status, order_progress_status
+            FROM orders
+            WHERE buyer_masked_id = $1
+              AND ($2::text IS NULL OR id::text = $2)
+            ORDER BY created_at DESC
+            LIMIT 1
+          `,
+          [user.masked_id, explicitOrder]
+        );
+        if (statusResult.rowCount === 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Order not found for status.",
+          });
+        }
+        const o = statusResult.rows[0];
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: [
+            `Order #${o.id.slice(0, 8)} status`,
+            `Progress: ${o.order_progress_status}`,
+            `Payment: ${o.payment_status}`,
+            `Settlement: ${o.settlement_status}`,
+            `Distribution: ${o.distribution_status}`,
+          ].join("\n"),
+        });
+      }
+
+      if (ratePattern.test(rawMessage.trim())) {
+        const match = rawMessage.match(ratePattern);
+        const orderId = normalizeOrderIdFromText(match?.[1]);
+        const rating = Number(match?.[2]);
+        const comment = String(match?.[3] || "").trim() || null;
+        const orderResult = await query(
+          `
+            SELECT id, buyer_masked_id, supplier_masked_id, order_progress_status
+            FROM orders
+            WHERE id = $1
+              AND buyer_masked_id = $2
+            LIMIT 1
+          `,
+          [orderId, user.masked_id]
+        );
+        if (orderResult.rowCount === 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Order not found for rating.",
+          });
+        }
+        const order = orderResult.rows[0];
+        if (!["DELIVERED"].includes(order.order_progress_status)) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "You can rate only after delivery is marked complete.",
+          });
+        }
+        await query(
+          `
+            INSERT INTO seller_ratings (
+              order_id,
+              buyer_masked_id,
+              seller_masked_id,
+              rating,
+              comment,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, NOW())
+            ON CONFLICT (order_id, buyer_masked_id)
+            DO UPDATE SET
+              rating = EXCLUDED.rating,
+              comment = EXCLUDED.comment
+          `,
+          [order.id, user.masked_id, order.supplier_masked_id, rating, comment]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Rating submitted. Asante sana.",
+        });
+      }
+
       const buyMatch = rawMessage.match(supplierBuyPattern);
       if (buyMatch) {
         const payload = await createOrderFromCatalogRequest({
@@ -4551,6 +5578,65 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           provider,
           senderPhone,
           message: "Refund request logged. Funds locked pending admin decision.",
+        });
+      }
+
+      const cancelMatch = rawMessage.match(/^cancel\s+([a-zA-Z0-9-]+)(?:\s+(.+))?$/i);
+      if (cancelMatch) {
+        const orderId = normalizeOrderIdFromText(cancelMatch[1]);
+        const orderResult = await query(
+          `
+            SELECT id, payment_status
+            FROM orders
+            WHERE id = $1
+              AND buyer_masked_id = $2
+            LIMIT 1
+          `,
+          [orderId, user.masked_id]
+        );
+        if (orderResult.rowCount === 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Order not found for cancellation.",
+          });
+        }
+        const paymentStatus = orderResult.rows[0].payment_status;
+        if (paymentStatus === "PENDING_PAYMENT") {
+          await query(
+            `
+              UPDATE orders
+              SET payment_status = 'PAYMENT_FAILED',
+                  order_progress_status = 'CANCELLED',
+                  dispute_reason = COALESCE($2, dispute_reason),
+                  updated_at = NOW()
+              WHERE id = $1
+            `,
+            [orderId, cancelMatch[2] || "Buyer canceled before payment"]
+          );
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Order cancelled before payment.",
+          });
+        }
+        await requestOrderRefund({
+          orderId,
+          buyerMaskedId: user.masked_id,
+          buyerPhone: senderPhone,
+          reason: cancelMatch[2] || "Buyer cancellation request",
+        });
+        await approveRefundByAdmin({
+          orderId,
+          actorPhone: "SYSTEM_AUTO_CANCEL",
+        });
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Cancellation received. Auto-refund processed via B2C.",
         });
       }
     }
@@ -4624,6 +5710,74 @@ const handleIncomingWhatsapp = async (req, res, next) => {
     if (
       (user.user_type === "TRANSPORTER_BIKE" ||
         user.user_type === "TRANSPORTER_TRUCK") &&
+      packedPattern.test(rawMessage.trim())
+    ) {
+      const match = rawMessage.match(packedPattern);
+      const orderId = normalizeOrderIdFromText(match?.[1]);
+      const updated = await query(
+        `
+          UPDATE orders
+          SET order_progress_status = 'PACKED',
+              updated_at = NOW()
+          WHERE id = $1
+            AND transporter_masked_id = $2
+          RETURNING id
+        `,
+        [orderId, user.masked_id]
+      );
+      if (updated.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Order not found/assigned for PACKED update.",
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Order #${orderId.slice(0, 8)} marked PACKED.`,
+      });
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
+      enRoutePattern.test(rawMessage.trim())
+    ) {
+      const match = rawMessage.match(enRoutePattern);
+      const orderId = normalizeOrderIdFromText(match?.[1]);
+      const updated = await query(
+        `
+          UPDATE orders
+          SET order_progress_status = 'EN_ROUTE',
+              updated_at = NOW()
+          WHERE id = $1
+            AND transporter_masked_id = $2
+          RETURNING id
+        `,
+        [orderId, user.masked_id]
+      );
+      if (updated.rowCount === 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Order not found/assigned for EN_ROUTE update.",
+        });
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: `Order #${orderId.slice(0, 8)} marked EN_ROUTE.`,
+      });
+    }
+
+    if (
+      (user.user_type === "TRANSPORTER_BIKE" ||
+        user.user_type === "TRANSPORTER_TRUCK") &&
       jobsPattern.test(rawMessage.trim())
     ) {
       return respondToUser({
@@ -4681,10 +5835,20 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
       try {
+        const normalizedOrderId = normalizeOrderIdFromText(deliverMatch[1]);
         await verifyOtpAndQueueRelease({
-          orderId: normalizeOrderIdFromText(deliverMatch[1]),
+          orderId: normalizedOrderId,
           otp: deliverMatch[2].toUpperCase(),
         });
+        await query(
+          `
+            UPDATE orders
+            SET order_progress_status = 'DELIVERED',
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [normalizedOrderId]
+        );
       } catch (error) {
         await incrementSenderFailure({ phoneNumber: senderPhone });
         return respondToUser({

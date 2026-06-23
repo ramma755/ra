@@ -344,15 +344,13 @@ Expected outcome:
 - Principle of least privilege for DB/API credentials
 - Webhook security:
   - WAHA inbound key auth (`WAHA_WEBHOOK_SECRET` or gateway API key fallback)
-  - Daraja callback source-IP whitelist (`DARAJA_ENFORCE_IP_WHITELIST=true`, `DARAJA_ALLOWED_IPS=ip1,ip2,cidr`)
+  - Daraja callback source-IP whitelist (`DARAJA_ENFORCE_IP_WHITELIST=true`, `DARAJA_ALLOWED_IPS=196.201.214.200,196.201.214.206,...`)
   - inbound webhook request logging to `webhook_request_logs`
 - API perimeter:
   - HTTPS-only enforcement in production (`BLOCK_NON_HTTPS_REQUESTS=true`)
   - CORS allowlist support (`CORS_ALLOWED_ORIGINS=https://yourapp.com,https://admin.yourapp.com`)
 - Abuse prevention:
-  - per-phone flood guard (`MAX_MESSAGES_PER_PHONE_PER_MINUTE`, `MUTE_MINUTES_ON_FLOOD`)
-  - auto-ban on repeated abuse (`AUTO_BAN_AFTER_VIOLATIONS`, `BAN_MINUTES`)
-  - sender state persisted in `sender_abuse_controls`
+  - sender activity telemetry persisted in `sender_abuse_controls` (no automatic mute/ban)
 - Admin security:
   - admin phone whitelist (`ADMIN_WHATSAPP_PHONE` / `ADMIN_WHATSAPP_PHONES`)
   - token-based privileged session (`ADMIN_REQUIRE_TOKEN=true`)
@@ -360,10 +358,37 @@ Expected outcome:
     - `admin token` (issue 4-digit code)
     - `verify <code>` (start privileged session)
     - `logout` (end session)
-    - `unban <phone>` (clear abuse block)
+    - `broadcast buyers <message>` (promo blast)
 - Registration security:
   - phone-owner OTP gate on first contact (4-digit verification before onboarding)
 - Payment integrity:
   - callback amount mismatch detection (expected STK amount vs callback amount)
   - duplicate `MpesaReceiptNumber` replay blocking
   - max per-order and rolling daily buyer cap (`MAX_ORDER_AMOUNT_KES`, `MAX_DAILY_AMOUNT_KES_PER_BUYER`)
+
+---
+
+## 10) Marketplace command quickstart
+
+- Buyer:
+  - `categories` -> browse numbered departments
+  - `category <number|name>` -> list products by department
+  - `search <item>` / `compare <item>` / `detail <catalog_item_id>`
+  - `wishlist add <catalog_item_id>`, `wishlist`, `wishlist remove <catalog_item_id>`
+  - `cart add <catalog_item_id> <qty>`, `cart`, `checkout`, `cart clear`
+  - `reorder` (repeat last order)
+  - `status [order_id]`, `rate <order_id> <1-5> [comment]`
+  - `my referral`, `refer <code>`, `points`
+- Supplier:
+  - `/update price <item_id> <new_price>`, `my prices`
+  - `delete item <item_id>`
+  - `lowstock <item_id> <threshold>`
+  - `payout request <amount>`
+- Transporter:
+  - `jobs`, `claim <order_id>`
+  - `packed <order_id>`, `enroute <order_id>`
+  - `deliver <order_id> <AGZ-XXXXXX>`
+- Admin:
+  - `release <order_id>`, `hold <order_id>`, `approve <order_id>`, `reject <order_id>`
+  - `payout approve <request_id>`
+  - `broadcast buyers <message>`
