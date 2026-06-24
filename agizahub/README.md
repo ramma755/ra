@@ -406,3 +406,28 @@ Expected outcome:
   - `override <order_id> <payment_status|settlement_status|distribution_status|order_progress_status> <VALUE>`
   - `force refund <order_id>`, `close order <order_id>`
   - `set tier <seller_masked_id> <free|premium>`
+
+---
+
+## 11) Bot Number Change Checklist (WAHA)
+
+When changing your WhatsApp bot line, use this quick checklist:
+
+1. Update env values:
+   - `WAHA_BOT_PHONE=+254XXXXXXXXX` (canonical format)
+   - keep `WAHA_SESSION_NAME` aligned with the linked WAHA session
+2. Relink WAHA session:
+   - open WAHA dashboard
+   - scan QR with the new SIM/line
+   - verify session status is `WORKING`
+3. Confirm webhook wiring:
+   - WAHA inbound webhook -> `https://<render-domain>/webhooks/whatsapp/inbound`
+   - ensure WAHA auth header/API key and `WAHA_WEBHOOK_SECRET` match backend config
+4. Run a live message-flow smoke test:
+   - send `help` from a user number
+   - verify inbound parse + bot reply
+   - test one proactive send (for example, admin broadcast) to confirm outbound path
+5. Watch logs for 5-10 minutes:
+   - webhook 200 responses
+   - no WAHA auth errors
+   - no retry-queue buildup for outbound messages
