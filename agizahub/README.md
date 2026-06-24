@@ -113,7 +113,7 @@ Expected outcome:
 Direct WhatsApp link for ads/landing pages:
 
 - format: `https://wa.me/<countrycode+number-without-plus>`
-- example for this bot line: `https://wa.me/254745127387`
+- example for this bot line: `https://wa.me/254117422428`
 
 ### Option B: Twilio Sandbox (testing)
 
