@@ -25,6 +25,15 @@ const firstNonEmptyString = (...values) => {
   return "";
 };
 
+const isTrueLike = (value) => {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value == null) return false;
+  if (typeof value === "number") return value === 1;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on";
+};
+
 const parseTwilioInbound = (payload) => {
   const latitude = Number(payload.Latitude || payload.latitude || NaN);
   const longitude = Number(payload.Longitude || payload.longitude || NaN);
@@ -73,7 +82,7 @@ const parseTwilioInbound = (payload) => {
 
 const parseWahaInbound = (payload) => {
   const candidate = payload?.payload || payload?.message || payload;
-  const fromMe = Boolean(
+  const fromMe = isTrueLike(
     firstDefined(
       candidate?.fromMe,
       candidate?.from_me,
