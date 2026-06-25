@@ -2400,7 +2400,9 @@ const formatCheckoutSummary = ({
     `Distance provider: ${transport.distanceProvider}`,
     "--------------------------",
     `TOTAL AMOUNT TO PAY: KSh ${Number(totalAmount).toLocaleString()}`,
-    "Reply 1 to confirm. M-Pesa prompt will appear instantly.",
+    "Choose next step by replying with:",
+    "1 - Confirm and trigger M-Pesa STK prompt",
+    "2 - Cancel this order",
   ].join("\n");
 
 const formatTransportOnlySummary = ({
@@ -2435,7 +2437,9 @@ const formatTransportOnlySummary = ({
     `Targeted drivers pinged: ${broadcastedDrivers} (corridor ${corridorKey})`,
     `TOTAL TO PAY NOW: KSh ${Number(requesterTotalKes).toLocaleString()}`,
     "--------------------------",
-    "Reply 1 to confirm and trigger STK push.",
+    "Choose next step by replying with:",
+    "1 - Confirm and trigger M-Pesa STK prompt",
+    "2 - Cancel this transport order",
   ].join("\n");
 
 const formatSellerOrderAlert = ({ payload }) =>
@@ -3377,7 +3381,12 @@ const processSupplierLogisticsStep = async ({ user, rawMessage }) => {
         `,
         [user.id, updatePayload.id]
       );
-      return "No matching transporters found right now for that vehicle type. Reply 1 to use own transport or 2 to retry matching.";
+      return [
+        "No matching transporters found right now for that vehicle type.",
+        "Choose next step by replying with:",
+        "1 - Use own transport",
+        "2 - Retry AgizaHub matching",
+      ].join("\n");
     }
 
     await notifyBuyerCheckoutReady({
@@ -3388,7 +3397,12 @@ const processSupplierLogisticsStep = async ({ user, rawMessage }) => {
     return `Vehicle selected: ${selected.label}. Broadcast sent to ${broadcastSummary.queuedDrivers} matching transporters.`;
   }
 
-  return "Logistics step reset. Reply with 1 (own transport) or 2 (need AgizaHub transporter).";
+  return [
+    "Logistics step reset.",
+    "Choose next step by replying with:",
+    "1 - I will use own transport",
+    "2 - I need AgizaHub transporter matching",
+  ].join("\n");
 };
 
 const parseBulkTiers = (rawValue) => {
@@ -4892,8 +4906,11 @@ const handleIncomingWhatsapp = async (req, res, next) => {
             res,
             provider,
             senderPhone,
-            message:
-              "Phone verification successful. Karibu AgizaHub! Reply 1/2/3/4 to choose your role and continue onboarding.",
+            message: [
+              "Phone verification successful. Karibu AgizaHub!",
+              "",
+              onboardingMenu(),
+            ].join("\n"),
           });
         }
 
@@ -5301,7 +5318,11 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           res,
           provider,
           senderPhone,
-          message: "Reply 1 to deposit now or 2 to cancel order.",
+          message: [
+            "Please choose a valid option:",
+            "1 - Deposit now (trigger STK prompt)",
+            "2 - Cancel order",
+          ].join("\n"),
         });
       }
       if (user.pending_order_id) {
