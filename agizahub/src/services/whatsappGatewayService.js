@@ -17,6 +17,40 @@ const normalizeSenderMsisdn = (rawValue) => {
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
+const collectObjectNodes = (root, maxDepth = 5, maxNodes = 120) => {
+  const nodes = [];
+  const queue = [{ value: root, depth: 0 }];
+  const seen = new Set();
+
+  while (queue.length > 0 && nodes.length < maxNodes) {
+    const entry = queue.shift();
+    const value = entry?.value;
+    const depth = Number(entry?.depth || 0);
+    if (!value || typeof value !== "object") continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    nodes.push(value);
+    if (depth >= maxDepth) continue;
+
+    const children = Array.isArray(value) ? value : Object.values(value);
+    for (const child of children) {
+      if (child && typeof child === "object") {
+        queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+  }
+
+  return nodes;
+};
+
+const firstDefinedFromNodes = (nodes, getter) => {
+  for (const node of nodes) {
+    const value = getter(node);
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+};
+
 const valueToText = (value, depth = 0) => {
   if (value == null) return "";
   if (typeof value === "string") return value.trim();
@@ -57,6 +91,14 @@ const valueToText = (value, depth = 0) => {
 const firstNonEmptyString = (...values) => {
   for (const value of values) {
     const normalized = valueToText(value);
+    if (normalized) return normalized;
+  }
+  return "";
+};
+
+const firstNonEmptyStringFromNodes = (nodes, getter) => {
+  for (const node of nodes) {
+    const normalized = valueToText(getter(node));
     if (normalized) return normalized;
   }
   return "";
@@ -119,50 +161,78 @@ const parseTwilioInbound = (payload) => {
 
 const parseWahaInbound = (payload) => {
   const candidate = payload?.payload || payload?.message || payload;
+  const nodes = collectObjectNodes(payload);
   const fromMe = isTrueLike(
-    firstDefined(
-      candidate?.fromMe,
-      candidate?.from_me,
-      candidate?.key?.fromMe,
-      payload?.fromMe,
-      payload?.from_me,
-      payload?.key?.fromMe
+    firstDefinedFromNodes(nodes, (node) =>
+      firstDefined(
+        node?.fromMe,
+        node?.from_me,
+        node?.key?.fromMe,
+        node?.key?.from_me,
+        node?.message?.key?.fromMe,
+        node?.message?.key?.from_me,
+        node?._data?.key?.fromMe
+      )
     )
   );
   if (fromMe) {
     return { ignore: true, provider: "WAHA", reason: "self-message" };
   }
 
-  const locationPayload =
-    candidate?.location ||
-    candidate?.message?.location ||
-    payload?.location ||
-    null;
+  const locationPayload = firstDefinedFromNodes(nodes, (node) =>
+    firstDefined(
+      node?.location,
+      node?.message?.location,
+      node?.message?.liveLocationMessage,
+      node?.message?.ephemeralMessage?.message?.location,
+      node?.message?.ephemeralMessage?.message?.liveLocationMessage
+    )
+  );
   const latitude = Number(
-    locationPayload?.latitude || locationPayload?.lat || locationPayload?.y || NaN
+    firstDefined(
+      locationPayload?.latitude,
+      locationPayload?.lat,
+      locationPayload?.degreesLatitude,
+      locationPayload?.y,
+      NaN
+    )
   );
   const longitude = Number(
-    locationPayload?.longitude || locationPayload?.lng || locationPayload?.x || NaN
+    firstDefined(
+      locationPayload?.longitude,
+      locationPayload?.lng,
+      locationPayload?.degreesLongitude,
+      locationPayload?.x,
+      NaN
+    )
   );
   const inboundLocation =
     Number.isFinite(latitude) && Number.isFinite(longitude)
       ? { latitude, longitude }
       : null;
 
-  const mediaCandidate =
-    candidate?.media ||
-    candidate?.document ||
-    candidate?.image ||
-    candidate?.file ||
-    payload?.media ||
-    payload?.document ||
-    payload?.image ||
-    null;
+  const mediaCandidate = firstDefinedFromNodes(nodes, (node) =>
+    firstDefined(
+      node?.media,
+      node?.document,
+      node?.image,
+      node?.file,
+      node?.message?.imageMessage,
+      node?.message?.videoMessage,
+      node?.message?.documentMessage,
+      node?.message?.audioMessage,
+      node?.message?.ephemeralMessage?.message?.imageMessage,
+      node?.message?.ephemeralMessage?.message?.videoMessage,
+      node?.message?.ephemeralMessage?.message?.documentMessage
+    )
+  );
   const mediaUrl =
     mediaCandidate?.url ||
     mediaCandidate?.link ||
     mediaCandidate?.downloadUrl ||
     mediaCandidate?.download_url ||
+    mediaCandidate?.directPath ||
+    mediaCandidate?.fileUrl ||
     candidate?.mediaUrl ||
     payload?.mediaUrl ||
     null;
@@ -190,62 +260,63 @@ const parseWahaInbound = (payload) => {
       : null;
 
   const rawMessage = firstNonEmptyString(
-    candidate?.selectedRowId,
-      candidate?.selectedRow?.id,
-      candidate?.selectedButtonId ||
-      candidate?.buttonId ||
-      candidate?.listReply?.id ||
-      candidate?.buttonReply?.id ||
-    candidate?.body,
-      candidate?.text,
-      candidate?.text?.body,
-      candidate?.message?.text,
-      candidate?.message?.body,
-      candidate?.message?.conversation,
-      candidate?.message?.extendedTextMessage?.text,
-      candidate?.message?.imageMessage?.caption,
-      candidate?.message?.videoMessage?.caption,
-      candidate?.message?.documentMessage?.caption,
-      payload?.body,
-      payload?.text,
-      payload?.text?.body,
-      payload?.message?.text,
-      payload?.message?.body,
-      payload?.message?.conversation,
-      payload?.message?.extendedTextMessage?.text,
-      payload?.payload?.body,
-      payload?.payload?.text,
-      inboundLocation ? "__location_shared__" : "",
-      inboundMedia ? "__media_shared__" : ""
+    firstNonEmptyStringFromNodes(nodes, (node) =>
+      firstDefined(
+        node?.selectedRowId,
+        node?.selectedRow?.id,
+        node?.selectedButtonId,
+        node?.buttonId,
+        node?.listReply?.id,
+        node?.buttonReply?.id,
+        node?.message?.listResponseMessage?.singleSelectReply?.selectedRowId,
+        node?.message?.buttonsResponseMessage?.selectedButtonId,
+        node?.message?.templateButtonReplyMessage?.selectedId,
+        node?.body,
+        node?.text,
+        node?.text?.body,
+        node?.caption,
+        node?.message?.text,
+        node?.message?.body,
+        node?.message?.conversation,
+        node?.message?.extendedTextMessage?.text,
+        node?.message?.imageMessage?.caption,
+        node?.message?.videoMessage?.caption,
+        node?.message?.documentMessage?.caption,
+        node?.message?.ephemeralMessage?.message?.conversation,
+        node?.message?.ephemeralMessage?.message?.extendedTextMessage?.text,
+        node?.message?.ephemeralMessage?.message?.imageMessage?.caption,
+        node?.message?.ephemeralMessage?.message?.videoMessage?.caption,
+        node?.message?.ephemeralMessage?.message?.documentMessage?.caption
+      )
+    ),
+    inboundLocation ? "__location_shared__" : "",
+    inboundMedia ? "__media_shared__" : ""
   );
 
   const senderRaw = firstNonEmptyString(
-    candidate?._data?.key?.remoteJidAlt,
-    candidate?._data?.key?.participantPn,
-    candidate?._data?.key?.remoteJid,
-    payload?._data?.key?.remoteJidAlt,
-    payload?._data?.key?.participantPn,
-    payload?._data?.key?.remoteJid,
-    payload?.payload?._data?.key?.remoteJidAlt,
-    payload?.payload?._data?.key?.participantPn,
-    payload?.payload?._data?.key?.remoteJid,
-    candidate?.from,
-    candidate?.fromNumber,
-    candidate?.sender?.id,
-    candidate?.sender?.phone,
-    candidate?.author,
-    candidate?.participant,
-    candidate?.key?.remoteJid,
-    payload?.from,
-    payload?.chatId,
-    payload?.author,
-    payload?.participant,
-    payload?.key?.remoteJid,
-    payload?.payload?.from,
-    payload?.payload?.chatId,
-    payload?.payload?.author,
-    payload?.payload?.participant,
-    payload?.payload?.key?.remoteJid
+    firstNonEmptyStringFromNodes(nodes, (node) =>
+      firstDefined(
+        node?._data?.key?.remoteJidAlt,
+        node?._data?.key?.participantPn,
+        node?._data?.key?.remoteJid,
+        node?.key?.remoteJid,
+        node?.key?.participant,
+        node?.key?.participantPn,
+        node?.key?.from,
+        node?.from,
+        node?.fromNumber,
+        node?.chatId,
+        node?.author,
+        node?.participant,
+        node?.sender?.id,
+        node?.sender?.phone,
+        node?.sender?.waId,
+        node?.sender?.jid,
+        node?.fromJid,
+        node?.message?.key?.remoteJid,
+        node?.message?.key?.participant
+      )
+    )
   );
 
   if (String(senderRaw).includes("@g.us")) {
@@ -270,11 +341,14 @@ const parseWahaInbound = (payload) => {
     senderPhone: senderMsisdn,
     communicationPhone: asCommunicationPhone(senderMsisdn),
     senderName: firstNonEmptyString(
-      candidate?.pushName,
-      candidate?.senderName,
-      candidate?.sender?.name,
-      payload?.senderName,
-      payload?.payload?.senderName,
+      firstNonEmptyStringFromNodes(nodes, (node) =>
+        firstDefined(
+          node?.pushName,
+          node?.senderName,
+          node?.sender?.name,
+          node?.contact?.name
+        )
+      ),
       "User"
     ),
     inboundLocation,

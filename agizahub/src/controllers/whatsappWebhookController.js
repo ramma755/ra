@@ -630,6 +630,36 @@ const buildUnknownRoleMessage = ({ user }) =>
     buildReactiveRoleMenu({ user, isWelcomeBack: false }),
   ].join("\n");
 
+const resolveSupplierNumericShortcut = (rawInput) => {
+  const input = String(rawInput || "").trim();
+  if (input === "0") return { command: "menu" };
+  if (input === "1") return { command: "catalog wizard" };
+  if (input === "2") return { command: "my prices" };
+  if (input === "3") {
+    return {
+      message: [
+        "Price update:",
+        "Use: /update price <item_id> <new_price>",
+        "Example: /update price 12 450",
+        "Tip: type my prices to see item IDs.",
+      ].join("\n"),
+    };
+  }
+  if (input === "4") {
+    return {
+      message: [
+        "Add stock:",
+        "Use: add stock <qty> <item_name>",
+        "Example: add stock 20 sugar",
+      ].join("\n"),
+    };
+  }
+  if (input === "5") return { command: "payout request" };
+  if (input === "6") return { command: "update my items" };
+  if (input === "7") return { command: "help" };
+  return null;
+};
+
 const parseCurrencyAmount = (value) => {
   const cleaned = String(value || "")
     .replace(/ksh|kes/gi, "")
@@ -5522,7 +5552,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       inboundLocation,
       inboundMedia,
     } = inbound;
-    const rawMessage = normalizeIncomingMessageText(inboundRawMessage);
+    let rawMessage = normalizeIncomingMessageText(inboundRawMessage);
     const lowerMessage = rawMessage.toLowerCase();
 
     if (!rawMessage) {
@@ -6441,6 +6471,21 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         senderPhone,
         message: onboardingResponse,
       });
+    }
+
+    if (user.user_type === "SUPPLIER") {
+      const supplierShortcut = resolveSupplierNumericShortcut(rawMessage);
+      if (supplierShortcut?.message) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: supplierShortcut.message,
+        });
+      }
+      if (supplierShortcut?.command) {
+        rawMessage = supplierShortcut.command;
+      }
     }
 
     if (roleMenuPattern.test(rawMessage.trim())) {
