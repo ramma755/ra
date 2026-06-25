@@ -7,7 +7,7 @@ const WA_PREFIX = "whatsapp:+";
 
 const normalizeGenericMsisdn = (rawValue) => {
   const digitsOnly = String(rawValue || "").replace(/[^\d]/g, "");
-  if (digitsOnly.length >= 9 && digitsOnly.length <= 15) return digitsOnly;
+  if (digitsOnly.length >= 11 && digitsOnly.length <= 15) return digitsOnly;
   return "";
 };
 
@@ -26,7 +26,7 @@ const extractPhoneLikeToken = (rawValue) => {
   const jidMatch = text.match(/(\d{9,15})(?::\d+)?@[a-z0-9.-]+/i);
   if (jidMatch?.[1]) return jidMatch[1];
 
-  const patterns = [/\+?2540?[71]\d{8}/g, /0[71]\d{8}/g, /[71]\d{8}/g, /\d{9,15}/g];
+  const patterns = [/\+?2540?[71]\d{8}/g, /0[71]\d{8}/g, /[71]\d{8}/g, /\+?\d{11,15}/g];
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match?.[0]) return match[0];
@@ -40,12 +40,12 @@ const normalizeSenderMsisdn = (rawValue) => {
     .replace(/:\d+@/g, "@")
     .replace(/@[a-z0-9._-]+$/i, "")
     .trim();
-  const direct = normalizeForWhatsApp(cleaned);
+  const direct = normalizeMsisdn(cleaned) || normalizeGenericMsisdn(cleaned);
   if (direct) return direct;
 
   const extracted = extractPhoneLikeToken(`${cleaned} ${String(rawValue || "")}`);
   if (!extracted) return "";
-  return normalizeForWhatsApp(extracted);
+  return normalizeMsisdn(extracted) || normalizeGenericMsisdn(extracted);
 };
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
@@ -203,9 +203,6 @@ const fallbackSenderFromSerializedPayload = (payload) => {
 
   const plusMatch = serialized.match(/\+?2540?[71]\d{8}/);
   if (plusMatch?.[0]) return plusMatch[0];
-
-  const genericMatch = serialized.match(/\b\d{9,15}\b/);
-  if (genericMatch?.[0]) return genericMatch[0];
 
   return "";
 };
