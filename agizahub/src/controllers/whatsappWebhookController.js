@@ -5557,6 +5557,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone, inboundLoc
 const handleIncomingWhatsapp = async (req, res, next) => {
   try {
     const inbound = parseInboundWhatsappPayload(req.body);
+    logger.info("Inbound parsed summary", {
+      provider: inbound.provider || env.whatsappGateway.provider,
+      ignore: Boolean(inbound.ignore),
+      hasMessage: Boolean(inbound.rawMessage),
+      hasSender: Boolean(inbound.senderPhone),
+      reason: inbound.reason || null,
+    });
     if (inbound.ignore) {
       logger.info("Inbound webhook ignored by parser", {
         provider: inbound.provider || env.whatsappGateway.provider,

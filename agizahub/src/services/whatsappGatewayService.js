@@ -1,6 +1,7 @@
 const axios = require("axios");
 const env = require("../config/env");
 const { normalizeMsisdn } = require("./darajaService");
+const logger = require("./logger");
 
 const WA_PREFIX = "whatsapp:+";
 
@@ -138,7 +139,6 @@ const valueToText = (value, depth = 0) => {
       "conversation",
       "caption",
       "content",
-      "id",
       "remoteJid",
       "jid",
       "phone",
@@ -267,6 +267,26 @@ const parseTwilioInbound = (payload) => {
 
 const parseWahaInbound = (payload) => {
   const normalizedPayload = coerceInboundPayload(payload);
+  const eventType = String(
+    normalizedPayload?.event || normalizedPayload?.type || normalizedPayload?.eventType || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (
+    eventType &&
+    ![
+      "message",
+      "message.any",
+      "messages.upsert",
+      "messages",
+      "message.upsert",
+      "message_create",
+      "message.created",
+    ].includes(eventType)
+  ) {
+    return { ignore: true, provider: "WAHA", reason: `non-message-event:${eventType}` };
+  }
+
   const candidate =
     normalizedPayload?.payload || normalizedPayload?.message || normalizedPayload;
   const nodes = collectObjectNodes(normalizedPayload);
@@ -533,6 +553,10 @@ const sendWahaMessage = async ({ toPhone, message }) => {
     env.whatsappGateway.wahaSendPath
   );
 
+  logger.info("Sending WAHA text reply", {
+    endpoint,
+    to: `${resolvedPhone.slice(0, 3)}***${resolvedPhone.slice(-3)}`,
+  });
   await axios.post(
     endpoint,
     {
@@ -566,6 +590,10 @@ const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
     env.whatsappGateway.wahaListPath
   );
 
+  logger.info("Sending WAHA list reply", {
+    endpoint,
+    to: `${resolvedPhone.slice(0, 3)}***${resolvedPhone.slice(-3)}`,
+  });
   await axios.post(
     endpoint,
     {
