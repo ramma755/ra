@@ -2404,6 +2404,7 @@ const isAdminPhone = (communicationPhone, senderPhone) => {
   if (configuredPhones.length === 0) return false;
 
   const normalizedSender = normalizeMsisdn(senderPhone || "");
+  const senderLast9 = String(normalizedSender || senderPhone || "").replace(/[^\d]/g, "").slice(-9);
   const normalizedCommunication = String(communicationPhone || "").trim();
 
   return configuredPhones.some((configured) => {
@@ -2411,7 +2412,9 @@ const isAdminPhone = (communicationPhone, senderPhone) => {
     if (!raw) return false;
     if (raw === normalizedCommunication) return true;
     const digits = normalizeMsisdn(raw.replace("whatsapp:+", ""));
-    return digits && digits === normalizedSender;
+    if (digits && digits === normalizedSender) return true;
+    const configuredLast9 = String(digits || raw).replace(/[^\d]/g, "").slice(-9);
+    return Boolean(senderLast9 && configuredLast9 && senderLast9 === configuredLast9);
   });
 };
 
@@ -5564,6 +5567,9 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       hasMessage: Boolean(inbound.rawMessage),
       hasSender: Boolean(inbound.senderPhone),
       hasReplyTarget: Boolean(inbound.replyTarget),
+      replyTargetPreview: inbound.replyTarget
+        ? String(inbound.replyTarget).replace(/\d(?=\d{4})/g, "*").slice(0, 40)
+        : null,
       reason: inbound.reason || null,
     });
     if (inbound.ignore) {

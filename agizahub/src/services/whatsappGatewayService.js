@@ -50,13 +50,25 @@ const normalizeSenderMsisdn = (rawValue) => {
     .replace(/:\d+@/g, "@")
     .replace(/@[a-z0-9._-]+$/i, "")
     .trim();
-  const direct = normalizeMsisdn(cleaned) || normalizeGenericMsisdn(cleaned);
+  const direct = normalizeMsisdn(cleaned);
   if (direct) return direct;
 
-  const extracted = extractPhoneLikeToken(`${cleaned} ${String(rawValue || "")}`);
+  const sourceText = `${cleaned} ${String(rawValue || "")}`;
+  const extracted = extractPhoneLikeToken(sourceText);
   if (!extracted) return "";
-  return normalizeMsisdn(extracted) || normalizeGenericMsisdn(extracted);
+  const normalizedKenyan = normalizeMsisdn(extracted);
+  if (normalizedKenyan) return normalizedKenyan;
+
+  const hasWhatsAppJidShape = /@[a-z0-9.-]+/i.test(sourceText);
+  if (!hasWhatsAppJidShape) return "";
+  return normalizeGenericMsisdn(extracted);
 };
+
+const extractDigitsFromChatTarget = (rawValue) =>
+  String(rawValue || "")
+    .split("@")[0]
+    .replace(/:\d+$/g, "")
+    .replace(/[^\d]/g, "");
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
@@ -295,19 +307,18 @@ const parseWahaInbound = (payload) => {
   }
 
   const candidate =
-    normalizedPayload?.payload || normalizedPayload?.message || normalizedPayload;
+    normalizedPayload?.payload || normalizedPayload?.data || normalizedPayload?.message || normalizedPayload;
   const nodes = collectObjectNodes(normalizedPayload);
   const replyTargetRaw = firstNonEmptyString(
-    firstNonEmptyStringFromNodes(nodes, (node) =>
-      firstDefined(
-        node?.from,
-        node?.chatId,
-        node?.key?.remoteJid,
-        node?.message?.key?.remoteJid,
-        node?._data?.key?.remoteJid,
-        node?._data?.id?.remote
-      )
-    )
+    candidate?.from,
+    candidate?.chatId,
+    candidate?.key?.remoteJid,
+    candidate?.message?.key?.remoteJid,
+    candidate?._data?.key?.remoteJid,
+    candidate?._data?.id?.remote,
+    normalizedPayload?.from,
+    normalizedPayload?.chatId,
+    normalizedPayload?.key?.remoteJid
   );
   const replyTarget = isDirectChatId(replyTargetRaw)
     ? String(replyTargetRaw).trim()
@@ -410,6 +421,21 @@ const parseWahaInbound = (payload) => {
       : null;
 
   const rawMessage = firstNonEmptyString(
+    candidate?.body,
+    candidate?.text?.body,
+    candidate?.text,
+    candidate?.message?.text,
+    candidate?.message?.body,
+    candidate?.message?.conversation,
+    candidate?.message?.extendedTextMessage?.text,
+    candidate?.message?.imageMessage?.caption,
+    candidate?.message?.videoMessage?.caption,
+    candidate?.message?.documentMessage?.caption,
+    candidate?.message?.ephemeralMessage?.message?.conversation,
+    candidate?.message?.ephemeralMessage?.message?.extendedTextMessage?.text,
+    normalizedPayload?.body,
+    normalizedPayload?.text?.body,
+    normalizedPayload?.text,
     firstNonEmptyStringFromNodes(nodes, (node) =>
       firstDefined(
         node?.selectedRowId,
@@ -421,22 +447,7 @@ const parseWahaInbound = (payload) => {
         node?.message?.listResponseMessage?.singleSelectReply?.selectedRowId,
         node?.message?.buttonsResponseMessage?.selectedButtonId,
         node?.message?.templateButtonReplyMessage?.selectedId,
-        node?.body,
-        node?.text,
-        node?.text?.body,
-        node?.caption,
-        node?.message?.text,
-        node?.message?.body,
-        node?.message?.conversation,
-        node?.message?.extendedTextMessage?.text,
-        node?.message?.imageMessage?.caption,
-        node?.message?.videoMessage?.caption,
-        node?.message?.documentMessage?.caption,
-        node?.message?.ephemeralMessage?.message?.conversation,
-        node?.message?.ephemeralMessage?.message?.extendedTextMessage?.text,
-        node?.message?.ephemeralMessage?.message?.imageMessage?.caption,
-        node?.message?.ephemeralMessage?.message?.videoMessage?.caption,
-        node?.message?.ephemeralMessage?.message?.documentMessage?.caption
+        node?.caption
       )
     ),
     inboundLocation ? "__location_shared__" : "",
@@ -499,7 +510,8 @@ const parseWahaInbound = (payload) => {
     return { ignore: true, provider: "WAHA", reason: "group-message-ignored" };
   }
 
-  const senderMsisdn = normalizeSenderMsisdn(senderRaw);
+  const senderFromReplyTarget = normalizeMsisdn(extractDigitsFromChatTarget(replyTargetRaw));
+  const senderMsisdn = senderFromReplyTarget || normalizeSenderMsisdn(senderRaw);
   if (!rawMessage || !senderMsisdn) {
     const topLevelKeys =
       normalizedPayload && typeof normalizedPayload === "object" && !Array.isArray(normalizedPayload)
