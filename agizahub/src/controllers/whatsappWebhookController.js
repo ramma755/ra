@@ -55,6 +55,7 @@ const {
 } = require("../services/adminTokenService");
 const { queueOutboundMessage } = require("../services/outboundMessageQueueService");
 const logger = require("../services/logger");
+const MENUS = require("../menus");
 
 const twimlResponse = (message) =>
   `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${message}</Message></Response>`;
@@ -87,77 +88,20 @@ const acknowledgeWebhook = ({ res, provider }) => {
     .send(`<?xml version="1.0" encoding="UTF-8"?><Response></Response>`);
 };
 
-const onboardingMenu = () =>
-  [
-    "Jambo! Welcome to AgizaHub. I see you are new here.",
-    "How would you like to use our platform today?",
-    "",
-    "Reply with:",
-    "1 - Register as a Buyer",
-    "2 - Register as a Supplier / Wholesaler",
-    "3 - Register as a Transporter (Short distance / Motorbike)",
-    "4 - Register as a Transporter (Long distance / Truck)",
-  ].join("\n");
+const onboardingMenu = () => MENUS.ROLE_SELECT();
 
-const paymentModeMenu = () =>
-  [
-    "How should AgizaHub process payments or refunds to your account?",
-    "Reply with:",
-    "1 - Send Money (M-Pesa to your phone)",
-    "2 - Buy Goods Till Number",
-    "3 - Business Paybill",
-  ].join("\n");
+const paymentModeMenu = () => MENUS.PAYMENT_MODE();
 
-const supplierBusinessTypeMenu = () =>
-  [
-    "Select your business catalog type:",
-    "1 - WHOLESALE",
-    "2 - RETAILER",
-    "3 - RESTAURANT",
-    "4 - GENERAL_SERVICES",
-  ].join("\n");
+const supplierBusinessTypeMenu = () => MENUS.SUPPLIER_BUSINESS_TYPE();
 
-const sellerLogisticsChoiceMenu = () =>
-  [
-    "LOGISTICS SELECTION",
-    "How will this order be delivered to the customer?",
-    "",
-    "Reply with 1 or 2:",
-    "1 - I am using my own business transport/delivery means.",
-    "2 - I need AgizaHub to match me with an on-demand transporter.",
-  ].join("\n");
+const sellerLogisticsChoiceMenu = () => MENUS.SELLER_LOGISTICS();
 
-const sellerVehicleSelectionMenu = () =>
-  [
-    "SELECT VEHICLE TYPE",
-    "What type of vehicle do you need for this delivery?",
-    "",
-    "Reply with 1, 2, 3, or 4:",
-    "1 - Rider / Motorbike (small packages)",
-    "2 - TukTuk (medium store supplies)",
-    "3 - Pickup Truck (bulk goods up to 1 ton)",
-    "4 - Lorry / Truck (heavy commercial distribution)",
-  ].join("\n");
+const sellerVehicleSelectionMenu = () => MENUS.SELLER_VEHICLE_SELECTION();
 
-const sellerStockConfirmationMenu = ({ orderId }) =>
-  [
-    `Order #${String(orderId || "").slice(0, 8)} requires stock confirmation.`,
-    "Reply:",
-    "1 - In stock",
-    "2 - Out of stock",
-  ].join("\n");
+const sellerStockConfirmationMenu = ({ orderId }) => MENUS.SELLER_STOCK_CONFIRMATION(orderId);
 
 const buyerDepositDecisionMenu = ({ orderId, totalAmountKes }) =>
-  [
-    "PAYMENT AUTHORIZATION",
-    `Order #${String(orderId || "").slice(0, 8)} has been confirmed by seller.`,
-    `Total Due: KSh ${Number(totalAmountKes || 0).toLocaleString()}`,
-    "Status: Awaiting Escrow Deposit",
-    "",
-    "Reply:",
-    "1 - Deposit Now (trigger M-Pesa STK prompt)",
-    "2 - Cancel Order",
-  ].join("\n");
+  MENUS.BUYER_DEPOSIT_DECISION({ orderId, totalAmountKes });
 
 const merchantAgreementMessage = () => {
   const lowPercent = Number(env.businessRules.lowValueCommissionPercent || 2);
@@ -203,35 +147,11 @@ const merchantAgreementMessage = () => {
   ].join("\n");
 };
 
-const transportCategoryMenu = () =>
-  [
-    "Need to move goods? Let's find you a secure transporter.",
-    "",
-    "Reply with:",
-    "1 - Commercial Freight (business stock/wholesale goods)",
-    "2 - Personal Relocation (house moves, electronics, personal items)",
-  ].join("\n");
+const transportCategoryMenu = () => MENUS.TRANSPORT_CATEGORY();
 
-const transportVehicleMenu = () =>
-  [
-    "What size vehicle do you require?",
-    "",
-    "1 - Motorbike (small packages)",
-    "2 - Tuk-tuk / Pickup (small house move / 1 tonne max)",
-    "3 - Canter / Truck (bulk load / 3+ tonnes)",
-  ].join("\n");
+const transportVehicleMenu = () => MENUS.TRANSPORT_VEHICLE();
 
-const catalogIngestionMenu = () =>
-  [
-    "AGIZAHUB INVENTORY ENGINE",
-    "How would you like to update your catalog today?",
-    "",
-    "Reply with 1, 2, 3, or 4:",
-    "1 - Type Out Text (Product, Price, Category)",
-    "2 - Upload Document (Excel/Word/PDF/CSV)",
-    "3 - Snap a Photo (menu board/delivery note/list)",
-    "4 - Quick Inventory Top-Up (Add stock / Update price)",
-  ].join("\n");
+const catalogIngestionMenu = () => MENUS.CATALOG_INGESTION();
 
 const catalogIngestionInteractiveList = () => ({
   title: "AgizaHub Inventory Engine",
@@ -275,18 +195,7 @@ const parseCatalogModeChoice = (rawMessage) => {
   return null;
 };
 
-const helpCenterMenu = () =>
-  [
-    "AGIZAHUB HELP CENTER",
-    "How can we assist you today?",
-    "",
-    "Reply with 1, 2, 3, 4, or 5:",
-    "1 - Wrong Order Delivered",
-    "2 - No Delivery Code Sent",
-    "3 - Transporter Delay",
-    "4 - Payment / Refund Request",
-    "5 - Talk to Human Admin",
-  ].join("\n");
+const helpCenterMenu = () => MENUS.HELP_CENTER();
 
 const helpCenterInteractiveList = () => ({
   title: "AgizaHub Help Center",
@@ -395,7 +304,8 @@ const emotionalEscalationPattern =
 
 const adminTokenRequestPattern = /^(?:admin\s+(?:token|otp|login)|token)$/i;
 const adminTokenVerifyPattern = /^(?:verify|code)\s+(\d{4})$/i;
-const adminLogoutPattern = /^(?:admin\s+logout|logout)$/i;
+const adminTokenPlainCodePattern = /^(\d{4})$/;
+const adminLogoutPattern = /^(?:10|admin\s+logout|logout)$/i;
 const adminUnmutePattern = /^(?:unmute|unban)\s+(\+?\d{9,15})$/i;
 const adminBroadcastBuyersPattern = /^(?:broadcast\s+buyers|promo\s+buyers)\s+(.+)/i;
 const adminBroadcastAllPattern = /^(?:broadcast\s+all|promo\s+all)\s+(.+)/i;
@@ -408,6 +318,7 @@ const adminCloseOrderPattern = /^(?:close\s+order|force\s+close)\s+([a-zA-Z0-9-]
 const adminSetTierPattern = /^(?:set\s+tier)\s+(\d{5})\s+(free|premium)$/i;
 const adminAcknowledgeText = () =>
   `Admin acknowledged: ${env.admin.name}. I am ready to execute privileged commands.`;
+const adminCommandMenu = () => MENUS.ADMIN_MENU();
 
 const normalizeIncomingMessageText = (value) =>
   String(value || "")
@@ -1743,6 +1654,74 @@ const isAdminPhone = (communicationPhone, senderPhone) => {
 };
 
 const handleAdminCommand = async (rawMessage, senderPhone) => {
+  const trimmed = String(rawMessage || "").trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower === "0" || lower === "menu" || lower === "admin menu") {
+    return adminCommandMenu();
+  }
+
+  if (trimmed === "2" || lower === "orders") {
+    const pending = await query(
+      `
+        SELECT
+          id,
+          buyer_masked_id,
+          supplier_masked_id,
+          total_amount_kes,
+          payment_status,
+          settlement_status
+        FROM orders
+        WHERE payment_status IN ('PENDING_PAYMENT', 'PAID_HELD', 'REFUND_REQUESTED')
+           OR settlement_status IN ('IN_PROGRESS', 'AWAITING_RELEASE', 'ON_HOLD')
+        ORDER BY created_at DESC
+        LIMIT 10
+      `
+    );
+    if (pending.rowCount === 0) return "No pending orders right now.";
+    const lines = pending.rows.map(
+      (row, index) =>
+        `${index + 1}. #${String(row.id).slice(0, 8)} | KSh ${Number(
+          row.total_amount_kes || 0
+        ).toLocaleString()} | ${row.payment_status}/${row.settlement_status} | buyer #${
+          row.buyer_masked_id || "--"
+        }`
+    );
+    return ["Pending orders (latest 10):", ...lines].join("\n");
+  }
+
+  if (trimmed === "3" || lower === "users") {
+    const users = await query(
+      `
+        SELECT
+          masked_id,
+          user_type,
+          company_name,
+          phone_number,
+          current_step
+        FROM platform_users
+        ORDER BY created_at DESC
+        LIMIT 15
+      `
+    );
+    if (users.rowCount === 0) return "No users found.";
+    const lines = users.rows.map((row, index) => {
+      const phone = row.phone_number ? maskBuyerPhone(row.phone_number) : "--";
+      const profile = row.company_name || "Unnamed";
+      return `${index + 1}. #${row.masked_id} | ${row.user_type || "UNSET"} | ${profile} | ${phone} | ${
+        row.current_step || "START"
+      }`;
+    });
+    return ["Recent users (latest 15):", ...lines].join("\n");
+  }
+
+  if (trimmed === "4") return "Use: force refund <ORDER-ID>";
+  if (trimmed === "5") return "Use: close order <ORDER-ID>";
+  if (trimmed === "6")
+    return "Use: override <ORDER-ID> <payment_status|settlement_status|distribution_status|order_progress_status> <VALUE>";
+  if (trimmed === "8") return "Use: broadcast buyers <message>";
+  if (trimmed === "9") return "Use: broadcast all <message>";
+
   const releaseMatch = rawMessage.match(/^release\s+([a-zA-Z0-9-]+)/i);
   if (releaseMatch) {
     const orderId = normalizeOrderIdFromText(releaseMatch[1]);
@@ -1862,7 +1841,7 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     }
   }
 
-  if (adminRevenuePattern.test(rawMessage.trim())) {
+  if (trimmed === "1" || trimmed === "7" || adminRevenuePattern.test(trimmed)) {
     const revenue = await query(
       `
         SELECT
@@ -4290,20 +4269,6 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone, inboundLoc
       const selectedRole = roleFromChoice(trimmed);
       if (!selectedRole) return onboardingMenu();
 
-      if (selectedRole === "BUYER") {
-        await client.query(
-          `
-            UPDATE platform_users
-            SET user_type = $2,
-                current_step = 'AWAITING_PAYMENT_MODE',
-                updated_at = NOW()
-            WHERE id = $1
-          `,
-          [user.id, selectedRole]
-        );
-        return paymentModeMenu();
-      }
-
       await client.query(
         `
           UPDATE platform_users
@@ -4314,10 +4279,13 @@ const processOnboardingStep = async ({ user, rawMessage, senderPhone, inboundLoc
         `,
         [user.id, selectedRole]
       );
-      return "Great. Reply with your official business/company or transporter name.";
+      return MENUS.PROFILE_NAME_PROMPT();
     }
 
     if (user.current_step === "AWAITING_COMPANY_NAME") {
+      if (trimmed.length < 2) {
+        return `${MENUS.PROFILE_NAME_PROMPT()}\n\nName must be at least 2 characters.`;
+      }
       await client.query(
         `
           UPDATE platform_users
@@ -4677,15 +4645,17 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           res,
           provider,
           senderPhone,
-          message: `${adminAcknowledgeText()}\nAdmin token: ${issued.token}\nValid for ${issued.expiresInMinutes} minutes. Reply: verify <code>`,
+          message: `${adminAcknowledgeText()}\n🔐 Admin token: ${issued.token}\nValid for ${issued.expiresInMinutes} minutes.\nReply with: verify <code> OR just <code>.`,
         });
       }
 
       const verifyMatch = trimmedAdmin.match(adminTokenVerifyPattern);
-      if (verifyMatch) {
+      const plainCodeMatch = trimmedAdmin.match(adminTokenPlainCodePattern);
+      const enteredToken = verifyMatch?.[1] || plainCodeMatch?.[1];
+      if (enteredToken) {
         const verification = await verifyAdminAccessToken({
           adminPhone: senderPhone,
-          token: verifyMatch[1],
+          token: enteredToken,
         });
         if (!verification.ok) {
           await incrementSenderFailure({ phoneNumber: senderPhone });
@@ -4700,7 +4670,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           res,
           provider,
           senderPhone,
-          message: `${adminAcknowledgeText()}\nVerified. Privileged session active for ${verification.verifiedForMinutes} minutes.`,
+          message: `${adminAcknowledgeText()}\n✅ Verified. Privileged session active for ${verification.verifiedForMinutes} minutes.\n\n${adminCommandMenu()}`,
         });
       }
 
@@ -4721,7 +4691,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           res,
           provider,
           senderPhone,
-          message: `${adminAcknowledgeText()}\nFor privileged access, request token with: admin token`,
+          message: `${adminAcknowledgeText()}\n🔒 For privileged access, request token with: admin token`,
         });
       }
 
@@ -4839,8 +4809,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         res,
         provider,
         senderPhone,
-        message:
-          `${adminAcknowledgeText()}\nAdmin commands: Release <OrderID>, Hold <OrderID>, Approve <OrderID>, Reject <OrderID>, payout approve <RequestID>, broadcast buyers <message>, broadcast all <message>, revenue, override <OrderID> <field> <value>, force refund <OrderID>, close order <OrderID>, set tier <SellerMaskedID> <free|premium>.`,
+        message: `${adminAcknowledgeText()}\n${adminCommandMenu()}`,
       });
     }
 
@@ -4906,11 +4875,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
             res,
             provider,
             senderPhone,
-            message: [
-              "Phone verification successful. Karibu AgizaHub!",
-              "",
-              onboardingMenu(),
-            ].join("\n"),
+            message: MENUS.WELCOME_ROLE_SELECT(),
           });
         }
 

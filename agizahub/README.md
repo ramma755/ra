@@ -355,11 +355,11 @@ Expected outcome:
 - Abuse prevention:
   - sender activity telemetry persisted in `sender_abuse_controls` (no automatic mute/ban)
 - Admin security:
-  - admin phone whitelist (`ADMIN_WHATSAPP_PHONE` / `ADMIN_WHATSAPP_PHONES`)
+  - admin phone whitelist (`ADMIN_WHATSAPP_PHONE` / `ADMIN_WHATSAPP_PHONES` / `ADMIN_PHONE_1..3`)
   - token-based privileged session (`ADMIN_REQUIRE_TOKEN=true`)
   - commands:
     - `admin token` (issue 4-digit code)
-    - `verify <code>` (start privileged session)
+    - `verify <code>` or `<code>` (start privileged session)
     - `logout` (end session)
     - `broadcast buyers <message>` (promo blast)
 - Registration security:
@@ -399,6 +399,8 @@ Expected outcome:
   - `packed <order_id>`, `enroute <order_id>`
   - `deliver <order_id> <AGZ-XXXXXX>`
 - Admin:
+  - `admin token` -> verify with `verify <code>` or just `<code>`
+  - numeric panel shortcuts: `1` stats, `2` pending orders, `3` recent users, `7` revenue, `10` logout
   - `release <order_id>`, `hold <order_id>`, `approve <order_id>`, `reject <order_id>`
   - `payout approve <request_id>`
   - `broadcast buyers <message>`, `broadcast all <message>`

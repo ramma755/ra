@@ -121,6 +121,16 @@ const defaultB2BFeeRules = [
   { min: 50001, max: 1000000, fee: 65 },
 ];
 
+const adminPhonesFromWhitelist = parseList(
+  process.env.ADMIN_WHATSAPP_PHONES || process.env.ADMIN_WHATSAPP_PHONE
+);
+const adminPhonesFromSlots = [
+  process.env.ADMIN_PHONE_1,
+  process.env.ADMIN_PHONE_2,
+  process.env.ADMIN_PHONE_3,
+].filter(Boolean);
+const resolvedAdminPhones = Array.from(new Set([...adminPhonesFromWhitelist, ...adminPhonesFromSlots]));
+
 module.exports = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 10000),
@@ -209,8 +219,8 @@ module.exports = {
     ),
   },
   admin: {
-    whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || "",
-    whatsappPhones: parseList(process.env.ADMIN_WHATSAPP_PHONES || process.env.ADMIN_WHATSAPP_PHONE),
+    whatsappPhone: process.env.ADMIN_WHATSAPP_PHONE || process.env.ADMIN_PHONE_1 || "",
+    whatsappPhones: resolvedAdminPhones,
     name: process.env.ADMIN_NAME || "Admin",
     requireToken: parseBoolean(process.env.ADMIN_REQUIRE_TOKEN, true),
     tokenTtlMinutes: Number(process.env.ADMIN_TOKEN_TTL_MINUTES || "5"),
