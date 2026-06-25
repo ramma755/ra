@@ -220,6 +220,15 @@ const parseWahaInbound = (payload) => {
   );
 
   const senderRaw = firstNonEmptyString(
+    candidate?._data?.key?.remoteJidAlt,
+    candidate?._data?.key?.participantPn,
+    candidate?._data?.key?.remoteJid,
+    payload?._data?.key?.remoteJidAlt,
+    payload?._data?.key?.participantPn,
+    payload?._data?.key?.remoteJid,
+    payload?.payload?._data?.key?.remoteJidAlt,
+    payload?.payload?._data?.key?.participantPn,
+    payload?.payload?._data?.key?.remoteJid,
     candidate?.from,
     candidate?.fromNumber,
     candidate?.sender?.id,
@@ -248,7 +257,9 @@ const parseWahaInbound = (payload) => {
     return {
       ignore: true,
       provider: "WAHA",
-      reason: "missing-waha-message-or-sender",
+      reason: `missing-waha-message-or-sender(rawMessage=${rawMessage ? "yes" : "no"}, senderRaw=${
+        senderRaw ? "yes" : "no"
+      }, senderMsisdn=${senderMsisdn ? "yes" : "no"})`,
     };
   }
 
