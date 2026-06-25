@@ -1,4 +1,7 @@
-# AgizaHub AI (Kenya Marketplace MVP)
+# AgizaHub AI (DISABLED / RESET)
+
+> Status: This project is intentionally reset and disabled.
+> All bot/webhook automations are turned off and number defaults are set to `NONE`.
 
 Backend MVP for a WhatsApp-first broker workflow:
 

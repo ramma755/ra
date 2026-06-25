@@ -68,7 +68,7 @@ const parseList = (value) =>
   String(value || "")
     .split(",")
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter((item) => item && item.toLowerCase() !== "none");
 const parseFeeRules = (rawValue, fallback) => {
   if (!rawValue) return fallback;
   try {
