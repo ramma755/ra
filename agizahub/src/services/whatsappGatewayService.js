@@ -4,16 +4,28 @@ const { normalizeMsisdn } = require("./darajaService");
 
 const WA_PREFIX = "whatsapp:+";
 
-const asCommunicationPhone = (msisdn) => `${WA_PREFIX}${normalizeMsisdn(msisdn)}`;
+const normalizeGenericMsisdn = (rawValue) => {
+  const digitsOnly = String(rawValue || "").replace(/[^\d]/g, "");
+  if (digitsOnly.length >= 9 && digitsOnly.length <= 15) return digitsOnly;
+  return "";
+};
+
+const normalizeForWhatsApp = (rawValue) =>
+  normalizeMsisdn(rawValue) || normalizeGenericMsisdn(rawValue);
+
+const asCommunicationPhone = (msisdn) => {
+  const normalized = normalizeForWhatsApp(msisdn);
+  return normalized ? `${WA_PREFIX}${normalized}` : "";
+};
 
 const extractPhoneLikeToken = (rawValue) => {
   const text = String(rawValue || "");
   if (!text) return "";
 
-  const jidMatch = text.match(/(\d{9,15})(?::\d+)?@(c\.us|s\.whatsapp\.net)/i);
+  const jidMatch = text.match(/(\d{9,15})(?::\d+)?@[a-z0-9.-]+/i);
   if (jidMatch?.[1]) return jidMatch[1];
 
-  const patterns = [/\+?254[71]\d{8}/g, /0[71]\d{8}/g, /[71]\d{8}/g];
+  const patterns = [/\+?2540?[71]\d{8}/g, /0[71]\d{8}/g, /[71]\d{8}/g, /\d{9,15}/g];
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match?.[0]) return match[0];
@@ -25,15 +37,14 @@ const normalizeSenderMsisdn = (rawValue) => {
   const cleaned = String(rawValue || "")
     .replace("whatsapp:", "")
     .replace(/:\d+@/g, "@")
-    .replace(/@c\.us$/i, "")
-    .replace(/@s\.whatsapp\.net$/i, "")
+    .replace(/@[a-z0-9._-]+$/i, "")
     .trim();
-  const direct = normalizeMsisdn(cleaned);
+  const direct = normalizeForWhatsApp(cleaned);
   if (direct) return direct;
 
-  const extracted = extractPhoneLikeToken(rawValue);
+  const extracted = extractPhoneLikeToken(`${cleaned} ${String(rawValue || "")}`);
   if (!extracted) return "";
-  return normalizeMsisdn(extracted);
+  return normalizeForWhatsApp(extracted);
 };
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
@@ -187,10 +198,10 @@ const fallbackSenderFromSerializedPayload = (payload) => {
   }
   if (!serialized) return "";
 
-  const jidMatch = serialized.match(/(\d{9,15})@(c\.us|s\.whatsapp\.net)/i);
+  const jidMatch = serialized.match(/(\d{9,15})(?::\d+)?@[a-z0-9.-]+/i);
   if (jidMatch?.[1]) return jidMatch[1];
 
-  const plusMatch = serialized.match(/\+?254\d{9}/);
+  const plusMatch = serialized.match(/\+?2540?[71]\d{8}/);
   if (plusMatch?.[0]) return plusMatch[0];
 
   const genericMatch = serialized.match(/\b\d{9,15}\b/);
@@ -504,7 +515,11 @@ const parseInboundWhatsappPayload = (payload) => {
 };
 
 const sendWahaMessage = async ({ toPhone, message }) => {
-  const chatId = `${normalizeMsisdn(toPhone)}@c.us`;
+  const resolvedPhone = normalizeForWhatsApp(toPhone);
+  if (!resolvedPhone) {
+    throw new Error("Cannot send WAHA message: invalid destination phone");
+  }
+  const chatId = `${resolvedPhone}@c.us`;
   const headers = {
     "Content-Type": "application/json",
   };
@@ -533,7 +548,11 @@ const sendWahaMessage = async ({ toPhone, message }) => {
 };
 
 const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
-  const chatId = `${normalizeMsisdn(toPhone)}@c.us`;
+  const resolvedPhone = normalizeForWhatsApp(toPhone);
+  if (!resolvedPhone) {
+    throw new Error("Cannot send WAHA interactive list: invalid destination phone");
+  }
+  const chatId = `${resolvedPhone}@c.us`;
   const headers = {
     "Content-Type": "application/json",
   };
