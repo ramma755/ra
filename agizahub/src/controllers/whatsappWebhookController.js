@@ -381,7 +381,7 @@ const addStockPrefixPattern = /^(?:add\s+stock|ongeza\s+(?:stock|hisa|stoo))\s+/
 const addOrUpdateInventoryPattern =
   /^(?:add\s+new\s+item|update\s+inventory|ongeza\s+bidhaa\s+mpya|sasisha\s+(?:inventory|orodha))/i;
 const sellerItemWizardStartPattern =
-  /^(?:catalog\s+wizard|add\s+item|add\s+catalog|ongeza\s+item|ongeza\s+catalog)$/i;
+  /^(?:wizard|catalog\s+wizard|start\s+wizard|add\s+item|add\s+catalog|ongeza\s+item|ongeza\s+catalog)$/i;
 const priceUpdatePrefixPattern =
   /^(?:\/?update\s+price|badili\s+bei|weka\s+bei|sahihisha\s+bei)\b/i;
 const listPricesPattern =
@@ -418,6 +418,7 @@ const setAddressPattern = /^(?:set\s+address|weka\s+address)\s+(.+)$/i;
 const myAddressPattern = /^(?:my\s+address|address|anwani)$/i;
 const schedulePattern = /^(?:schedule|preorder|agiza\s+baadaye)\s+([a-zA-Z0-9-]+)\s+(.+)$/i;
 const payoutRequestPattern = /^(?:payout\s+request|withdraw|toa\s+pesa)\s+(\d+(?:\.\d+)?)$/i;
+const payoutRequestStartPattern = /^(?:payout\s+request|withdraw|toa\s+pesa)$/i;
 const deleteItemPattern = /^(?:delete\s+item|remove\s+item|futa\s+item)\s+(\d+)$/i;
 const updateStockThresholdPattern = /^(?:lowstock|stock\s+threshold|kizingiti)\s+(\d+)\s+(\d+)$/i;
 const flashSalePattern = /^(?:flash\s+sale)\s+(\d+)\s+(\d+(?:\.\d+)?)\s+(\d+)$/i;
@@ -563,57 +564,108 @@ const roleLabel = (userType) => {
 const roleQuickSuggestions = (userType) => {
   if (userType === "BUYER") {
     return [
-      "• buy  -> view offers table",
-      "• search charger  -> smart item search",
-      "• buy item <ID> <qty>  (qty supports 1/2, 1.5, 2)",
-      "• cart / checkout / status",
-      "• help  -> support options",
+      "1) buy",
+      "2) search <item_name>  (example: search charger)",
+      "3) buy item <ID> <qty>",
+      "4) cart",
+      "5) checkout",
+      "6) status",
+      "7) help",
     ];
   }
   if (userType === "SUPPLIER") {
     return [
-      "• catalog wizard  -> guided add (name -> unit -> price -> stock)",
-      "• update my items  -> bulk upload/text/photo modes",
-      "• my prices  -> view catalog table",
-      "• /update price <ID> <new_price>",
-      "• add stock <qty> <item>, payout request <amount>",
+      "1) catalog wizard",
+      "2) my prices",
+      "3) /update price <ID> <new_price>",
+      "4) add stock <qty> <item_name>",
+      "5) payout request <amount>",
+      "6) update my items",
+      "7) help",
     ];
   }
   if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK") {
     return [
-      "• jobs  -> open deliveries",
-      "• claim <order_id>  -> take a job",
-      "• packed <order_id>, enroute <order_id>",
-      "• deliver <order_id> <AGZ-XXXXXX>",
-      "• corridor <area>, vehicle 1|2|3",
+      "1) jobs",
+      "2) claim <order_id>",
+      "3) packed <order_id>",
+      "4) enroute <order_id>",
+      "5) deliver <order_id> <AGZ-XXXXXX>",
+      "6) corridor <area>",
+      "7) vehicle 1|2|3",
+      "8) help",
     ];
   }
-  return ["• help"];
+  return ["help"];
 };
 
 const roleFollowUpPrompt = (userType) => {
-  if (userType === "BUYER") return "What do you want to buy today? I can search quickly for you.";
+  if (userType === "BUYER") return "Reply with any command above. For example: search rice";
   if (userType === "SUPPLIER")
-    return "What do you want to update today? I can help you add/edit stock in seconds.";
+    return "Reply with any command above. For example: catalog wizard";
   if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK")
-    return "Ready for deliveries today? I can show open jobs now.";
-  return "How can I help you today?";
+    return "Reply with any command above. For example: jobs";
+  return "Type help to continue.";
 };
 
 const buildReactiveRoleMenu = ({ user, isWelcomeBack = false }) => {
   const name = user.company_name || `#${user.masked_id}`;
   const header = isWelcomeBack
-    ? `👋 Welcome back ${name}!`
-    : `⚡ AgizaHub Smart Assistant (${roleLabel(user.user_type)})`;
+    ? `Welcome back ${name}.`
+    : `${roleLabel(user.user_type)} menu`;
   return [
     header,
-    `Role remembered: ${roleLabel(user.user_type)}`,
     "",
-    "Quick suggestions:",
+    "Use one of these commands:",
     ...roleQuickSuggestions(user.user_type),
     "",
     roleFollowUpPrompt(user.user_type),
   ].join("\n");
+};
+
+const buildUnknownRoleMessage = ({ user }) =>
+  [
+    "Sikuelewa vizuri / I didn't fully get that.",
+    "",
+    buildReactiveRoleMenu({ user, isWelcomeBack: false }),
+  ].join("\n");
+
+const parseCurrencyAmount = (value) => {
+  const cleaned = String(value || "")
+    .replace(/ksh|kes/gi, "")
+    .replace(/[,\s]/g, "")
+    .replace(/[^\d.]/g, "");
+  const amount = Number(cleaned);
+  return Number.isFinite(amount) ? amount : Number.NaN;
+};
+
+const submitSupplierPayoutRequest = async ({ user, amountKes, keepCurrentStep = true }) => {
+  await query(
+    `
+      INSERT INTO seller_payout_requests (
+        seller_masked_id,
+        amount_kes,
+        status,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, 'PENDING', NOW(), NOW())
+    `,
+    [user.masked_id, amountKes]
+  );
+  if (!keepCurrentStep) {
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'COMPLETED',
+            pending_transport_payload = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+  }
+  return "Payout request received and queued for admin approval.";
 };
 
 const elapsedMinutesSince = (value) => {
@@ -6333,6 +6385,49 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
+    if (user.current_step === "AWAITING_PAYOUT_REQUEST_AMOUNT") {
+      const lowerMessage = rawMessage.trim().toLowerCase();
+      if (["cancel", "back", "acha", "sitisha"].includes(lowerMessage)) {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'COMPLETED',
+                pending_transport_payload = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Payout request cancelled.",
+        });
+      }
+
+      const amount = parseCurrencyAmount(rawMessage);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: "Invalid amount. Step 1/1: send payout amount in KSh. Example: 1500",
+        });
+      }
+      const payoutMessage = await submitSupplierPayoutRequest({
+        user,
+        amountKes: amount,
+        keepCurrentStep: false,
+      });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: payoutMessage,
+      });
+    }
+
     if (!user.user_type || user.current_step !== "COMPLETED") {
       const onboardingResponse = await processOnboardingStep({
         user,
@@ -6377,6 +6472,30 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message: await startSupplierItemWizard({ user }),
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && payoutRequestStartPattern.test(rawMessage.trim())) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_PAYOUT_REQUEST_AMOUNT',
+              pending_transport_payload = $2::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [
+          user.id,
+          JSON.stringify({
+            source: "seller-payout-request",
+          }),
+        ]
+      );
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: "Step 1/1: Send payout amount in KSh. Example: 1500\nType cancel to stop.",
       });
     }
 
@@ -6916,25 +7035,15 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           message: "Invalid payout amount. Use: payout request <amount>",
         });
       }
-      await query(
-        `
-          INSERT INTO seller_payout_requests (
-            seller_masked_id,
-            amount_kes,
-            status,
-            created_at,
-            updated_at
-          )
-          VALUES ($1, $2, 'PENDING', NOW(), NOW())
-        `,
-        [user.masked_id, amount]
-      );
+      const payoutMessage = await submitSupplierPayoutRequest({
+        user,
+        amountKes: amount,
+      });
       return respondToUser({
         res,
         provider,
         senderPhone,
-        message:
-          "Payout request received and queued for admin approval. Admin can approve with: payout approve <request_id>.",
+        message: payoutMessage,
       });
     }
 
@@ -7904,13 +8013,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       senderName,
     });
     if (legacyResult.errorMessage) {
-      const roleFallback = user.user_type
-        ? [
-            "🤖 Sikuelewa vizuri / I didn't fully get that.",
-            "",
-            buildReactiveRoleMenu({ user, isWelcomeBack: false }),
-          ].join("\n")
-        : legacyResult.errorMessage;
+      const roleFallback = user.user_type ? buildUnknownRoleMessage({ user }) : legacyResult.errorMessage;
       return respondToUser({
         res,
         provider,
