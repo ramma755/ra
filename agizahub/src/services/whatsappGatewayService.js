@@ -15,6 +15,16 @@ const normalizeSenderMsisdn = (rawValue) => {
   return normalizeMsisdn(cleaned);
 };
 
+const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+
+const firstNonEmptyString = (...values) => {
+  for (const value of values) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return "";
+};
+
 const parseTwilioInbound = (payload) => {
   const latitude = Number(payload.Latitude || payload.latitude || NaN);
   const longitude = Number(payload.Longitude || payload.longitude || NaN);
@@ -64,7 +74,14 @@ const parseTwilioInbound = (payload) => {
 const parseWahaInbound = (payload) => {
   const candidate = payload?.payload || payload?.message || payload;
   const fromMe = Boolean(
-    candidate?.fromMe || candidate?.from_me || payload?.fromMe || payload?.from_me
+    firstDefined(
+      candidate?.fromMe,
+      candidate?.from_me,
+      candidate?.key?.fromMe,
+      payload?.fromMe,
+      payload?.from_me,
+      payload?.key?.fromMe
+    )
   );
   if (fromMe) {
     return { ignore: true, provider: "WAHA", reason: "self-message" };
@@ -126,29 +143,55 @@ const parseWahaInbound = (payload) => {
         }
       : null;
 
-  const rawMessage = String(
-    candidate?.selectedRowId ||
+  const rawMessage = firstNonEmptyString(
+    candidate?.selectedRowId,
+      candidate?.selectedRow?.id,
       candidate?.selectedButtonId ||
       candidate?.buttonId ||
       candidate?.listReply?.id ||
       candidate?.buttonReply?.id ||
-    candidate?.body ||
-      candidate?.text ||
-      candidate?.message?.text ||
-      payload?.body ||
-      payload?.text ||
-      (inboundLocation ? "__location_shared__" : "") ||
-      (inboundMedia ? "__media_shared__" : "") ||
-      ""
-  ).trim();
+    candidate?.body,
+      candidate?.text,
+      candidate?.text?.body,
+      candidate?.message?.text,
+      candidate?.message?.body,
+      candidate?.message?.conversation,
+      candidate?.message?.extendedTextMessage?.text,
+      candidate?.message?.imageMessage?.caption,
+      candidate?.message?.videoMessage?.caption,
+      candidate?.message?.documentMessage?.caption,
+      payload?.body,
+      payload?.text,
+      payload?.text?.body,
+      payload?.message?.text,
+      payload?.message?.body,
+      payload?.message?.conversation,
+      payload?.message?.extendedTextMessage?.text,
+      payload?.payload?.body,
+      payload?.payload?.text,
+      inboundLocation ? "__location_shared__" : "",
+      inboundMedia ? "__media_shared__" : ""
+  );
 
-  const senderRaw =
-    candidate?.from ||
-    candidate?.fromNumber ||
-    candidate?.sender?.id ||
-    payload?.from ||
-    payload?.chatId ||
-    "";
+  const senderRaw = firstNonEmptyString(
+    candidate?.from,
+    candidate?.fromNumber,
+    candidate?.sender?.id,
+    candidate?.sender?.phone,
+    candidate?.author,
+    candidate?.participant,
+    candidate?.key?.remoteJid,
+    payload?.from,
+    payload?.chatId,
+    payload?.author,
+    payload?.participant,
+    payload?.key?.remoteJid,
+    payload?.payload?.from,
+    payload?.payload?.chatId,
+    payload?.payload?.author,
+    payload?.payload?.participant,
+    payload?.payload?.key?.remoteJid
+  );
 
   if (String(senderRaw).includes("@g.us")) {
     return { ignore: true, provider: "WAHA", reason: "group-message-ignored" };
@@ -169,8 +212,14 @@ const parseWahaInbound = (payload) => {
     rawMessage,
     senderPhone: senderMsisdn,
     communicationPhone: asCommunicationPhone(senderMsisdn),
-    senderName:
-      candidate?.pushName || candidate?.senderName || payload?.senderName || "User",
+    senderName: firstNonEmptyString(
+      candidate?.pushName,
+      candidate?.senderName,
+      candidate?.sender?.name,
+      payload?.senderName,
+      payload?.payload?.senderName,
+      "User"
+    ),
     inboundLocation,
     inboundMedia,
   };
