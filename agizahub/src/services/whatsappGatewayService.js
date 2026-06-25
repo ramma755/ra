@@ -17,9 +17,46 @@ const normalizeSenderMsisdn = (rawValue) => {
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
+const valueToText = (value, depth = 0) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth >= 3) return "";
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const parsed = valueToText(entry, depth + 1);
+      if (parsed) return parsed;
+    }
+    return "";
+  }
+
+  if (typeof value === "object") {
+    const commonTextKeys = [
+      "text",
+      "body",
+      "conversation",
+      "caption",
+      "content",
+      "id",
+      "remoteJid",
+      "jid",
+      "phone",
+      "number",
+      "from",
+    ];
+    for (const key of commonTextKeys) {
+      const parsed = valueToText(value[key], depth + 1);
+      if (parsed) return parsed;
+    }
+  }
+
+  return "";
+};
+
 const firstNonEmptyString = (...values) => {
   for (const value of values) {
-    const normalized = String(value ?? "").trim();
+    const normalized = valueToText(value);
     if (normalized) return normalized;
   }
   return "";

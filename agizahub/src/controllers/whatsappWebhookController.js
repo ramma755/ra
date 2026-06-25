@@ -4623,6 +4623,10 @@ const handleIncomingWhatsapp = async (req, res, next) => {
   try {
     const inbound = parseInboundWhatsappPayload(req.body);
     if (inbound.ignore) {
+      logger.info("Inbound webhook ignored by parser", {
+        provider: inbound.provider || env.whatsappGateway.provider,
+        reason: inbound.reason || "unknown",
+      });
       return acknowledgeWebhook({
         res,
         provider: inbound.provider || env.whatsappGateway.provider,
