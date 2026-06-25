@@ -366,10 +366,14 @@ const merchantAgreementAcceptPattern = /^(?:i\s+agree|nakubali(?:\s+masharti)?)$
 const termsCommandPattern = /^(?:terms|masharti|vigezo|kanuni)$/i;
 const supportOrderPattern = /^(?:support|msaada|tiketi)\s+([a-zA-Z0-9-]+)/i;
 const helpCommandPattern = /^(?:\/?help|\/?msaada|nisaidie|saidia|help\s+me)$/i;
+const greetingPattern =
+  /^(?:hi|hello|hey|jambo|habari|mambo|niaje|sasa|yo|hujambo|good\s+(?:morning|afternoon|evening))$/i;
+const roleMenuPattern = /^(?:menu|home|start|mwanzo|options)$/i;
 const transportCommandPattern = /^(?:transport|move|hama|safirisha)$/i;
 const buyOffersViewPattern = /^(?:buy|offers|view|nunua|onyesha|bidhaa|orodha)$/i;
 const searchCommandPrefixPattern = /^(?:search|find|tafuta|tafta|nitafutie)\s+/i;
 const searchOnlyPattern = /^(?:search|find|tafuta|tafta|nitafutie)$/i;
+const searchRowHelpPattern = /^(?:search\s+row|row\s+search)$/i;
 const supplierBuyPattern = /^(?:buy|nunua|agiza)\s+(\d{5})\s+(.+)$/i;
 const buyByItemPattern = /^(?:buy|nunua|agiza)\s+(?:item\s+)?(\d+)\s+(.+)$/i;
 const refundPattern = /^(?:refund|rejesha|rudisha)\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i;
@@ -389,7 +393,7 @@ const claimPattern = /^(?:claim|chukua)\s+([a-zA-Z0-9-]+)/i;
 const deliverPattern = /^(?:deliver|wasilisha)\s+([a-zA-Z0-9-]+)\s+((?:AGZ-\d{6})|\d{4})$/i;
 const supplierCatalogTriggerPattern =
   /^(?:update(\s+my)?\s+(items|catalog|catalogue|stock)|add\s+(catalog|catalogue)|catalog(\s+update)?|sasisha\s+(?:bidhaa|catalog|catalogue|stock)|ongeza\s+(?:bidhaa|catalog|catalogue|stock))$/i;
-const categoriesPattern = /^(?:categories|category|menu|departments|idara|kategoria)$/i;
+const categoriesPattern = /^(?:categories|category|departments|idara|kategoria)$/i;
 const categorySelectPattern = /^(?:category|idara)\s+(.+)$/i;
 const comparePattern = /^(?:compare|linganisha)\s+(.+)$/i;
 const detailPattern = /^(?:detail|details|maelezo)\s+(\d+)$/i;
@@ -547,6 +551,76 @@ const formatUserStepLabel = (currentStep) => {
   if (step === "COMPLETED") return "ACTIVE";
   if (step.startsWith("AWAITING_")) return `SETUP_IN_PROGRESS (${step.replace("AWAITING_", "")})`;
   return step;
+};
+
+const roleLabel = (userType) => {
+  if (userType === "BUYER") return "Buyer";
+  if (userType === "SUPPLIER") return "Seller";
+  if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK") return "Transporter";
+  return "Member";
+};
+
+const roleQuickSuggestions = (userType) => {
+  if (userType === "BUYER") {
+    return [
+      "• buy  -> view offers table",
+      "• search charger  -> smart item search",
+      "• buy item <ID> <qty>  (qty supports 1/2, 1.5, 2)",
+      "• cart / checkout / status",
+      "• help  -> support options",
+    ];
+  }
+  if (userType === "SUPPLIER") {
+    return [
+      "• catalog wizard  -> guided add (name -> unit -> price -> stock)",
+      "• update my items  -> bulk upload/text/photo modes",
+      "• my prices  -> view catalog table",
+      "• /update price <ID> <new_price>",
+      "• add stock <qty> <item>, payout request <amount>",
+    ];
+  }
+  if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK") {
+    return [
+      "• jobs  -> open deliveries",
+      "• claim <order_id>  -> take a job",
+      "• packed <order_id>, enroute <order_id>",
+      "• deliver <order_id> <AGZ-XXXXXX>",
+      "• corridor <area>, vehicle 1|2|3",
+    ];
+  }
+  return ["• help"];
+};
+
+const roleFollowUpPrompt = (userType) => {
+  if (userType === "BUYER") return "What do you want to buy today? I can search quickly for you.";
+  if (userType === "SUPPLIER")
+    return "What do you want to update today? I can help you add/edit stock in seconds.";
+  if (userType === "TRANSPORTER_BIKE" || userType === "TRANSPORTER_TRUCK")
+    return "Ready for deliveries today? I can show open jobs now.";
+  return "How can I help you today?";
+};
+
+const buildReactiveRoleMenu = ({ user, isWelcomeBack = false }) => {
+  const name = user.company_name || `#${user.masked_id}`;
+  const header = isWelcomeBack
+    ? `👋 Welcome back ${name}!`
+    : `⚡ AgizaHub Smart Assistant (${roleLabel(user.user_type)})`;
+  return [
+    header,
+    `Role remembered: ${roleLabel(user.user_type)}`,
+    "",
+    "Quick suggestions:",
+    ...roleQuickSuggestions(user.user_type),
+    "",
+    roleFollowUpPrompt(user.user_type),
+  ].join("\n");
+};
+
+const elapsedMinutesSince = (value) => {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return Number.POSITIVE_INFINITY;
+  return (Date.now() - ts) / (1000 * 60);
 };
 
 const parseSupplierBusinessTypeChoice = (choice) => {
@@ -1486,41 +1560,86 @@ const listCatalogOffersMessage = async () => {
 const listCategoriesMessage = async () => {
   const result = await query(
     `
-      SELECT business_type, COUNT(*) AS item_count
-      FROM catalog_items
-      WHERE is_active = TRUE
-        AND stock_quantity > 0
-      GROUP BY business_type
-      ORDER BY business_type ASC
+      SELECT
+        COALESCE(NULLIF(c.catalog_metadata->>'product_category', ''), c.business_type, 'GENERAL_MERCHANDISE') AS category_key,
+        COUNT(*) AS item_count
+      FROM catalog_items c
+      JOIN platform_users u ON u.masked_id = c.seller_masked_id
+      WHERE c.is_active = TRUE
+        AND c.stock_quantity > 0
+        AND u.user_type = 'SUPPLIER'
+        AND COALESCE(u.merchant_agreement_status, 'PENDING') = 'ACCEPTED'
+      GROUP BY category_key
+      ORDER BY item_count DESC, category_key ASC
     `
   );
   if (result.rowCount === 0) {
     return "No active categories available right now.";
   }
-  const mapping = {
-    WHOLESALE: "Wholesale",
-    RETAILER: "Retail",
-    RESTAURANT: "Restaurant",
-    GENERAL_SERVICES: "General Services",
-  };
-  const lines = ["Browse categories (reply with: category <number>):"];
-  result.rows.forEach((row, idx) => {
-    lines.push(`${idx + 1}. ${mapping[row.business_type] || row.business_type} (${row.item_count} items)`);
-  });
-  return lines.join("\n");
+  const rows = result.rows.map((row, idx) => [
+    String(idx + 1),
+    String(row.category_key || "GENERAL_MERCHANDISE").replace(/_/g, " "),
+    String(row.item_count || 0),
+  ]);
+  return [
+    "Browse categories",
+    renderTextTable({
+      headers: ["#", "CATEGORY", "ITEMS"],
+      widths: [2, 22, 5],
+      rows,
+    }),
+    "Reply: category <number|name>",
+  ].join("\n");
 };
 
 const resolveCategoryType = async (input) => {
   const value = String(input || "").trim();
+  if (!value) return null;
+  const categoriesResult = await query(
+    `
+      SELECT DISTINCT
+        COALESCE(NULLIF(catalog_metadata->>'product_category', ''), business_type, 'GENERAL_MERCHANDISE') AS category_key
+      FROM catalog_items
+      WHERE is_active = TRUE
+        AND stock_quantity > 0
+      ORDER BY category_key ASC
+    `
+  );
+  const categories = categoriesResult.rows.map((row) => String(row.category_key || "").toUpperCase());
+  if (categories.length === 0) return null;
+
   const byNumber = Number(value);
-  const categories = ["WHOLESALE", "RETAILER", "RESTAURANT", "GENERAL_SERVICES"];
   if (Number.isInteger(byNumber) && byNumber >= 1 && byNumber <= categories.length) {
     return categories[byNumber - 1];
   }
-  const upper = value.toUpperCase().replace(/\s+/g, "_");
-  if (categories.includes(upper)) return upper;
-  if (upper === "GENERAL") return "GENERAL_SERVICES";
-  return null;
+
+  const normalized = value
+    .toUpperCase()
+    .replace(/[\s\-\/]+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "")
+    .trim();
+  if (categories.includes(normalized)) return normalized;
+
+  const aliasMap = {
+    ELECTRONICS: "ELECTRONICS_GADGETS",
+    GADGETS: "ELECTRONICS_GADGETS",
+    CLOTHES: "CLOTHES_SHOES",
+    SHOES: "CLOTHES_SHOES",
+    FOOD: "FOOD_GROCERY",
+    GROCERY: "FOOD_GROCERY",
+    CEREALS: "CEREALS_GRAINS",
+    GRAINS: "CEREALS_GRAINS",
+    FURNITURE: "FURNITURE_HOME",
+    AUTO: "AUTO_MOTO_PARTS_REPAIR",
+    CAR: "AUTO_MOTO_PARTS_REPAIR",
+    BEAUTY: "BEAUTY_PERSONAL_CARE",
+    HARDWARE: "HARDWARE_CONSTRUCTION",
+    GENERAL: "GENERAL_MERCHANDISE",
+  };
+  const alias = aliasMap[normalized];
+  if (alias && categories.includes(alias)) return alias;
+
+  return categories.find((key) => key.includes(normalized) || normalized.includes(key)) || null;
 };
 
 const listCatalogByCategoryMessage = async ({ categoryType }) => {
@@ -1539,12 +1658,13 @@ const listCatalogByCategoryMessage = async ({ categoryType }) => {
         u.masked_id,
         u.company_name,
         COALESCE(u.merchant_agreement_status, 'PENDING') AS merchant_agreement_status,
-        COALESCE(u.seller_tier, 'FREE') AS seller_tier
+        COALESCE(u.seller_tier, 'FREE') AS seller_tier,
+        COALESCE(NULLIF(c.catalog_metadata->>'product_category', ''), c.business_type, 'GENERAL_MERCHANDISE') AS category_key
       FROM catalog_items c
       JOIN platform_users u ON u.masked_id = c.seller_masked_id
       WHERE c.is_active = TRUE
         AND c.stock_quantity > 0
-        AND c.business_type = $1
+        AND COALESCE(NULLIF(c.catalog_metadata->>'product_category', ''), c.business_type, 'GENERAL_MERCHANDISE') = $1
         AND u.user_type = 'SUPPLIER'
       ORDER BY
         CASE WHEN c.promoted_until IS NOT NULL AND c.promoted_until > NOW() THEN 0 ELSE 1 END ASC,
@@ -5555,9 +5675,23 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
-    const user = await transaction(async (client) =>
+    let user = await transaction(async (client) =>
       ensureUserRecord(client, communicationPhone)
     );
+    const previousInboundAt = user.last_inbound_message_at || null;
+    await query(
+      `
+        UPDATE platform_users
+        SET last_inbound_message_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+    user = {
+      ...user,
+      last_inbound_message_at: new Date().toISOString(),
+    };
 
     if (!user.phone_verified) {
       const trimmed = rawMessage.trim();
@@ -6199,6 +6333,37 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       });
     }
 
+    if (roleMenuPattern.test(rawMessage.trim())) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: buildReactiveRoleMenu({ user, isWelcomeBack: false }),
+      });
+    }
+
+    if (greetingPattern.test(rawMessage.trim()) && user.user_type) {
+      const inactiveForMinutes = elapsedMinutesSince(previousInboundAt);
+      const isReturning = inactiveForMinutes >= Number(env.assistant.inactivityWelcomeMinutes || 30);
+      if (isReturning) {
+        await query(
+          `
+            UPDATE platform_users
+            SET last_reengagement_prompt_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [user.id]
+        );
+      }
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: buildReactiveRoleMenu({ user, isWelcomeBack: isReturning }),
+      });
+    }
+
     if (user.user_type === "SUPPLIER" && sellerItemWizardStartPattern.test(rawMessage.trim())) {
       return respondToUser({
         res,
@@ -6488,6 +6653,20 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           "- search tv",
           "",
           "Tip: type 'buy' to see current offers table.",
+        ].join("\n"),
+      });
+    }
+
+    if (user.user_type === "BUYER" && searchRowHelpPattern.test(rawMessage.trim())) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: [
+          "Use one of these:",
+          "• search <product>  (example: search charger)",
+          "• buy  (shows offers table)",
+          "• buy item <ID> <qty>  (example: buy item 12 1/2)",
         ].join("\n"),
       });
     }
@@ -7718,11 +7897,18 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       senderName,
     });
     if (legacyResult.errorMessage) {
+      const roleFallback = user.user_type
+        ? [
+            "🤖 Sikuelewa vizuri / I didn't fully get that.",
+            "",
+            buildReactiveRoleMenu({ user, isWelcomeBack: false }),
+          ].join("\n")
+        : legacyResult.errorMessage;
       return respondToUser({
         res,
         provider,
         senderPhone,
-        message: legacyResult.errorMessage,
+        message: roleFallback,
       });
     }
 

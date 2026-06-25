@@ -230,6 +230,9 @@ module.exports = {
     alertFallbackDestination:
       process.env.ADMIN_ALERT_FALLBACK_DESTINATION || "admin-dashboard",
   },
+  assistant: {
+    inactivityWelcomeMinutes: Number(process.env.INACTIVITY_WELCOME_MINUTES || "30"),
+  },
   security: {
     blockNonHttpsRequests: parseBoolean(process.env.BLOCK_NON_HTTPS_REQUESTS, true),
     corsAllowedOrigins: parseList(process.env.CORS_ALLOWED_ORIGINS),

@@ -377,6 +377,8 @@ Expected outcome:
 - Buyer:
   - `buy` -> table view of active offers
   - `buy item <catalog_item_id> <qty>` (supports `1/2`, `1.5`, `2`)
+  - send `hello` after inactivity -> bot remembers your role and gives smart quick actions
+  - `menu` -> role-aware quick suggestions panel
   - `categories` -> browse numbered departments
   - `category <number|name>` -> list products by department
   - `search <item>` / `compare <item>` / `detail <catalog_item_id>`
@@ -391,6 +393,7 @@ Expected outcome:
   - `my referral`, `refer <code>`, `points`
 - Supplier:
   - `catalog wizard` -> guided step-by-step item capture (name -> unit -> price -> stock)
+  - send `hello` after inactivity -> seller quick actions + follow-up prompt
   - `/update price <item_id> <new_price>`, `my prices`
   - `delete item <item_id>`
   - `lowstock <item_id> <threshold>`
