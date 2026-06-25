@@ -26,7 +26,12 @@ const {
 const router = express.Router();
 
 router.get("/health", (_req, res) => {
-  res.status(200).json({ ok: true, service: "agizahub-api" });
+  res.status(200).json({
+    ok: true,
+    service: "agizahub-api",
+    branch: process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || null,
+    commit: process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || null,
+  });
 });
 
 router.post(

@@ -1739,6 +1739,19 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     return adminCommandMenu();
   }
 
+  if (lower === "version" || lower === "admin version" || lower === "build") {
+    const commit = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || "unknown";
+    const branch = process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || "unknown";
+    const adminPhones = Array.isArray(env.admin.whatsappPhones) ? env.admin.whatsappPhones.length : 0;
+    return [
+      "Admin runtime info",
+      `Branch: ${branch}`,
+      `Commit: ${commit}`,
+      `Admin phones configured: ${adminPhones}`,
+      `Alert channel: ${env.admin.alertChannel || "WHATSAPP"}`,
+    ].join("\n");
+  }
+
   if (trimmed === "2" || lower === "orders") {
     const pending = await query(
       `
