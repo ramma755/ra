@@ -68,13 +68,38 @@ const respondToUser = async ({
   interactiveList = null,
 }) => {
   if (provider === "WAHA") {
-    await sendGatewayReply({
-      provider,
-      toPhone: senderPhone,
-      message,
-      interactiveList,
-    });
-    return res.status(200).json({ ok: true, provider });
+    // WAHA may retry webhooks quickly if we don't acknowledge immediately.
+    // Send HTTP 200 first, then dispatch outbound reply asynchronously.
+    res.status(200).json({ ok: true, provider });
+    Promise.resolve()
+      .then(async () => {
+        try {
+          await sendGatewayReply({
+            provider,
+            toPhone: senderPhone,
+            message,
+            interactiveList,
+          });
+        } catch (error) {
+          logger.warn("WAHA immediate reply failed, queued for retry", {
+            toPhone: senderPhone,
+            error: error.message,
+          });
+          await queueOutboundMessage({
+            toPhone: senderPhone,
+            message,
+            interactiveList,
+            error: error.message,
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error("WAHA async reply dispatch failed", {
+          toPhone: senderPhone,
+          error: error.message,
+        });
+      });
+    return;
   }
   return res.type("text/xml").send(twimlResponse(message));
 };
