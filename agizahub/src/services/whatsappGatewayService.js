@@ -6,13 +6,34 @@ const WA_PREFIX = "whatsapp:+";
 
 const asCommunicationPhone = (msisdn) => `${WA_PREFIX}${normalizeMsisdn(msisdn)}`;
 
+const extractPhoneLikeToken = (rawValue) => {
+  const text = String(rawValue || "");
+  if (!text) return "";
+
+  const jidMatch = text.match(/(\d{9,15})(?::\d+)?@(c\.us|s\.whatsapp\.net)/i);
+  if (jidMatch?.[1]) return jidMatch[1];
+
+  const patterns = [/\+?254[71]\d{8}/g, /0[71]\d{8}/g, /[71]\d{8}/g];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) return match[0];
+  }
+  return "";
+};
+
 const normalizeSenderMsisdn = (rawValue) => {
   const cleaned = String(rawValue || "")
     .replace("whatsapp:", "")
+    .replace(/:\d+@/g, "@")
     .replace(/@c\.us$/i, "")
     .replace(/@s\.whatsapp\.net$/i, "")
     .trim();
-  return normalizeMsisdn(cleaned);
+  const direct = normalizeMsisdn(cleaned);
+  if (direct) return direct;
+
+  const extracted = extractPhoneLikeToken(rawValue);
+  if (!extracted) return "";
+  return normalizeMsisdn(extracted);
 };
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
@@ -134,6 +155,25 @@ const firstNonEmptyStringFromNodes = (nodes, getter) => {
   for (const node of nodes) {
     const normalized = valueToText(getter(node));
     if (normalized) return normalized;
+  }
+  return "";
+};
+
+const isLikelySenderToken = (value) => {
+  const text = valueToText(value);
+  if (!text) return false;
+  return Boolean(
+    text.match(/(\d{9,15})(?::\d+)?@(c\.us|s\.whatsapp\.net)/i) ||
+      text.match(/\+?254[71]\d{8}/) ||
+      text.match(/0[71]\d{8}/) ||
+      text.match(/[71]\d{8}/)
+  );
+};
+
+const firstLikelySenderFromNodes = (nodes, getter) => {
+  for (const node of nodes) {
+    const value = getter(node);
+    if (isLikelySenderToken(value)) return valueToText(value);
   }
   return "";
 };
@@ -351,6 +391,29 @@ const parseWahaInbound = (payload) => {
   );
 
   let senderRaw = firstNonEmptyString(
+    firstLikelySenderFromNodes(nodes, (node) =>
+      firstDefined(
+        node?._data?.key?.remoteJidAlt,
+        node?._data?.key?.participantPn,
+        node?._data?.key?.remoteJid,
+        node?.key?.remoteJid,
+        node?.key?.participant,
+        node?.key?.participantPn,
+        node?.key?.from,
+        node?.from,
+        node?.fromNumber,
+        node?.chatId,
+        node?.author,
+        node?.participant,
+        node?.sender?.id,
+        node?.sender?.phone,
+        node?.sender?.waId,
+        node?.sender?.jid,
+        node?.fromJid,
+        node?.message?.key?.remoteJid,
+        node?.message?.key?.participant
+      )
+    ),
     firstNonEmptyStringFromNodes(nodes, (node) =>
       firstDefined(
         node?._data?.key?.remoteJidAlt,
@@ -389,12 +452,15 @@ const parseWahaInbound = (payload) => {
       normalizedPayload && typeof normalizedPayload === "object" && !Array.isArray(normalizedPayload)
         ? Object.keys(normalizedPayload).slice(0, 10).join("|")
         : "none";
+    const senderPreview = String(senderRaw || "")
+      .replace(/\d(?=\d{4})/g, "*")
+      .slice(0, 60);
     return {
       ignore: true,
       provider: "WAHA",
       reason: `missing-waha-message-or-sender(rawMessage=${rawMessage ? "yes" : "no"}, senderRaw=${
         senderRaw ? "yes" : "no"
-      }, senderMsisdn=${senderMsisdn ? "yes" : "no"}, topKeys=${topLevelKeys})`,
+      }, senderMsisdn=${senderMsisdn ? "yes" : "no"}, senderPreview=${senderPreview || "none"}, topKeys=${topLevelKeys})`,
     };
   }
 
