@@ -24,6 +24,7 @@ const {
 } = require("../middleware/securityMiddleware");
 
 const router = express.Router();
+const parseWhatsappInboundBody = express.text({ type: "*/*", limit: "2mb" });
 
 router.get("/health", (_req, res) => {
   res.status(200).json({
@@ -36,6 +37,7 @@ router.get("/health", (_req, res) => {
 
 router.post(
   "/webhooks/whatsapp/inbound",
+  parseWhatsappInboundBody,
   logInboundWebhook({ source: "WHATSAPP" }),
   requireWahaWebhookAuth,
   handleIncomingWhatsapp

@@ -2,6 +2,16 @@ const axios = require("axios");
 const env = require("../config/env");
 const logger = require("./logger");
 
+const resolveWahaEndpoint = (baseUrl, path) => {
+  const base = String(baseUrl || "").replace(/\/$/, "");
+  const normalizedPath = String(path || "").startsWith("/") ? String(path || "") : `/${path || ""}`;
+  if (!base) return normalizedPath;
+  if (base.endsWith("/api") && normalizedPath.startsWith("/api/")) {
+    return `${base}${normalizedPath.slice(4)}`;
+  }
+  return `${base}${normalizedPath}`;
+};
+
 const sessionStatusFromPayload = (payload, sessionName) => {
   if (!payload) return null;
   if (Array.isArray(payload)) {
@@ -41,7 +51,9 @@ const runWahaSessionWatchdog = async () => {
     env.whatsappGateway.wahaSessionStartPath || "/api/sessions/{session}/start";
   const startPath = startPathTemplate.replace("{session}", encodeURIComponent(sessionName));
   try {
-    const response = await axios.get(`${baseUrl}${statusPath}`, {
+    const statusEndpoint = resolveWahaEndpoint(baseUrl, statusPath);
+    const startEndpoint = resolveWahaEndpoint(baseUrl, startPath);
+    const response = await axios.get(statusEndpoint, {
       headers,
       timeout: 20000,
     });
@@ -53,7 +65,7 @@ const runWahaSessionWatchdog = async () => {
     }
 
     await axios.post(
-      `${baseUrl}${startPath}`,
+      startEndpoint,
       { name: sessionName },
       {
         headers,

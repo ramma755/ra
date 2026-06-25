@@ -17,6 +17,40 @@ const normalizeSenderMsisdn = (rawValue) => {
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
+const resolveWahaEndpoint = (baseUrl, path) => {
+  const base = String(baseUrl || "").replace(/\/$/, "");
+  const normalizedPath = String(path || "").startsWith("/") ? String(path || "") : `/${path || ""}`;
+  if (!base) return normalizedPath;
+  if (base.endsWith("/api") && normalizedPath.startsWith("/api/")) {
+    return `${base}${normalizedPath.slice(4)}`;
+  }
+  return `${base}${normalizedPath}`;
+};
+
+const coerceInboundPayload = (rawPayload) => {
+  if (rawPayload == null) return {};
+  if (Buffer.isBuffer(rawPayload)) {
+    const asText = rawPayload.toString("utf8").trim();
+    if (!asText) return {};
+    try {
+      return JSON.parse(asText);
+    } catch (_error) {
+      return { text: asText, body: asText };
+    }
+  }
+  if (typeof rawPayload === "string") {
+    const trimmed = rawPayload.trim();
+    if (!trimmed) return {};
+    try {
+      return JSON.parse(trimmed);
+    } catch (_error) {
+      return { text: trimmed, body: trimmed };
+    }
+  }
+  if (typeof rawPayload === "object") return rawPayload;
+  return {};
+};
+
 const collectObjectNodes = (root, maxDepth = 5, maxNodes = 120) => {
   const nodes = [];
   const queue = [{ value: root, depth: 0 }];
@@ -104,6 +138,27 @@ const firstNonEmptyStringFromNodes = (nodes, getter) => {
   return "";
 };
 
+const fallbackSenderFromSerializedPayload = (payload) => {
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(payload || {});
+  } catch (_error) {
+    return "";
+  }
+  if (!serialized) return "";
+
+  const jidMatch = serialized.match(/(\d{9,15})@(c\.us|s\.whatsapp\.net)/i);
+  if (jidMatch?.[1]) return jidMatch[1];
+
+  const plusMatch = serialized.match(/\+?254\d{9}/);
+  if (plusMatch?.[0]) return plusMatch[0];
+
+  const genericMatch = serialized.match(/\b\d{9,15}\b/);
+  if (genericMatch?.[0]) return genericMatch[0];
+
+  return "";
+};
+
 const isTrueLike = (value) => {
   if (value === true) return true;
   if (value === false) return false;
@@ -160,8 +215,10 @@ const parseTwilioInbound = (payload) => {
 };
 
 const parseWahaInbound = (payload) => {
-  const candidate = payload?.payload || payload?.message || payload;
-  const nodes = collectObjectNodes(payload);
+  const normalizedPayload = coerceInboundPayload(payload);
+  const candidate =
+    normalizedPayload?.payload || normalizedPayload?.message || normalizedPayload;
+  const nodes = collectObjectNodes(normalizedPayload);
   const fromMe = isTrueLike(
     firstDefinedFromNodes(nodes, (node) =>
       firstDefined(
@@ -293,7 +350,7 @@ const parseWahaInbound = (payload) => {
     inboundMedia ? "__media_shared__" : ""
   );
 
-  const senderRaw = firstNonEmptyString(
+  let senderRaw = firstNonEmptyString(
     firstNonEmptyStringFromNodes(nodes, (node) =>
       firstDefined(
         node?._data?.key?.remoteJidAlt,
@@ -318,6 +375,9 @@ const parseWahaInbound = (payload) => {
       )
     )
   );
+  if (!senderRaw) {
+    senderRaw = fallbackSenderFromSerializedPayload(normalizedPayload);
+  }
 
   if (String(senderRaw).includes("@g.us")) {
     return { ignore: true, provider: "WAHA", reason: "group-message-ignored" };
@@ -325,12 +385,16 @@ const parseWahaInbound = (payload) => {
 
   const senderMsisdn = normalizeSenderMsisdn(senderRaw);
   if (!rawMessage || !senderMsisdn) {
+    const topLevelKeys =
+      normalizedPayload && typeof normalizedPayload === "object" && !Array.isArray(normalizedPayload)
+        ? Object.keys(normalizedPayload).slice(0, 10).join("|")
+        : "none";
     return {
       ignore: true,
       provider: "WAHA",
       reason: `missing-waha-message-or-sender(rawMessage=${rawMessage ? "yes" : "no"}, senderRaw=${
         senderRaw ? "yes" : "no"
-      }, senderMsisdn=${senderMsisdn ? "yes" : "no"})`,
+      }, senderMsisdn=${senderMsisdn ? "yes" : "no"}, topKeys=${topLevelKeys})`,
     };
   }
 
@@ -357,18 +421,20 @@ const parseWahaInbound = (payload) => {
 };
 
 const detectInboundProvider = (payload) => {
-  if (payload && (payload.Body || payload.From || payload.WaId)) {
+  const normalizedPayload = coerceInboundPayload(payload);
+  if (normalizedPayload && (normalizedPayload.Body || normalizedPayload.From || normalizedPayload.WaId)) {
     return "TWILIO";
   }
   return "WAHA";
 };
 
 const parseInboundWhatsappPayload = (payload) => {
-  const provider = detectInboundProvider(payload);
+  const normalizedPayload = coerceInboundPayload(payload);
+  const provider = detectInboundProvider(normalizedPayload);
   if (provider === "TWILIO") {
-    return parseTwilioInbound(payload);
+    return parseTwilioInbound(normalizedPayload);
   }
-  return parseWahaInbound(payload);
+  return parseWahaInbound(normalizedPayload);
 };
 
 const sendWahaMessage = async ({ toPhone, message }) => {
@@ -381,11 +447,10 @@ const sendWahaMessage = async ({ toPhone, message }) => {
     headers.Authorization = `Bearer ${env.whatsappGateway.apiKey}`;
   }
 
-  const base = env.whatsappGateway.wahaBaseUrl.replace(/\/$/, "");
-  const path = env.whatsappGateway.wahaSendPath.startsWith("/")
-    ? env.whatsappGateway.wahaSendPath
-    : `/${env.whatsappGateway.wahaSendPath}`;
-  const endpoint = `${base}${path}`;
+  const endpoint = resolveWahaEndpoint(
+    env.whatsappGateway.wahaBaseUrl,
+    env.whatsappGateway.wahaSendPath
+  );
 
   await axios.post(
     endpoint,
@@ -411,11 +476,10 @@ const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
     headers.Authorization = `Bearer ${env.whatsappGateway.apiKey}`;
   }
 
-  const base = env.whatsappGateway.wahaBaseUrl.replace(/\/$/, "");
-  const path = env.whatsappGateway.wahaListPath.startsWith("/")
-    ? env.whatsappGateway.wahaListPath
-    : `/${env.whatsappGateway.wahaListPath}`;
-  const endpoint = `${base}${path}`;
+  const endpoint = resolveWahaEndpoint(
+    env.whatsappGateway.wahaBaseUrl,
+    env.whatsappGateway.wahaListPath
+  );
 
   await axios.post(
     endpoint,
