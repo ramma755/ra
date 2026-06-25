@@ -3,6 +3,20 @@ const { transaction, query } = require("../config/db");
 const registerSenderMessage = async ({ phoneNumber }) => {
   const now = new Date();
   return transaction(async (client) => {
+    await client.query(
+      `
+        INSERT INTO sender_abuse_controls (
+          phone_number,
+          window_started_at,
+          request_count,
+          updated_at
+        )
+        VALUES ($1, NOW(), 0, NOW())
+        ON CONFLICT (phone_number) DO NOTHING
+      `,
+      [phoneNumber]
+    );
+
     const existing = await client.query(
       `
         SELECT *
