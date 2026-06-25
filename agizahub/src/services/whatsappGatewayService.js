@@ -19,6 +19,16 @@ const asCommunicationPhone = (msisdn) => {
   return normalized ? `${WA_PREFIX}${normalized}` : "";
 };
 
+const asMaskedDestination = (target) => {
+  const text = String(target || "");
+  if (!text) return "unknown";
+  const [left, domain] = text.split("@");
+  const maskedLeft = left.length <= 6 ? `${left.slice(0, 2)}***` : `${left.slice(0, 3)}***${left.slice(-3)}`;
+  return domain ? `${maskedLeft}@${domain}` : maskedLeft;
+};
+
+const isDirectChatId = (value) => /@[a-z0-9.-]+$/i.test(String(value || "").trim());
+
 const extractPhoneLikeToken = (rawValue) => {
   const text = String(rawValue || "");
   if (!text) return "";
@@ -287,6 +297,21 @@ const parseWahaInbound = (payload) => {
   const candidate =
     normalizedPayload?.payload || normalizedPayload?.message || normalizedPayload;
   const nodes = collectObjectNodes(normalizedPayload);
+  const replyTargetRaw = firstNonEmptyString(
+    firstNonEmptyStringFromNodes(nodes, (node) =>
+      firstDefined(
+        node?.from,
+        node?.chatId,
+        node?.key?.remoteJid,
+        node?.message?.key?.remoteJid,
+        node?._data?.key?.remoteJid,
+        node?._data?.id?.remote
+      )
+    )
+  );
+  const replyTarget = isDirectChatId(replyTargetRaw)
+    ? String(replyTargetRaw).trim()
+    : "";
   const fromMe = isTrueLike(
     firstDefinedFromNodes(nodes, (node) =>
       firstDefined(
@@ -497,6 +522,7 @@ const parseWahaInbound = (payload) => {
     provider: "WAHA",
     rawMessage,
     senderPhone: senderMsisdn,
+    replyTarget: replyTarget || senderMsisdn,
     communicationPhone: asCommunicationPhone(senderMsisdn),
     senderName: firstNonEmptyString(
       firstNonEmptyStringFromNodes(nodes, (node) =>
@@ -532,11 +558,13 @@ const parseInboundWhatsappPayload = (payload) => {
 };
 
 const sendWahaMessage = async ({ toPhone, message }) => {
-  const resolvedPhone = normalizeForWhatsApp(toPhone);
-  if (!resolvedPhone) {
-    throw new Error("Cannot send WAHA message: invalid destination phone");
+  const rawTarget = String(toPhone || "").trim();
+  const chatId = isDirectChatId(rawTarget)
+    ? rawTarget
+    : `${normalizeForWhatsApp(rawTarget)}@c.us`;
+  if (!chatId || chatId.startsWith("@")) {
+    throw new Error("Cannot send WAHA message: invalid destination");
   }
-  const chatId = `${resolvedPhone}@c.us`;
   const headers = {
     "Content-Type": "application/json",
   };
@@ -552,7 +580,7 @@ const sendWahaMessage = async ({ toPhone, message }) => {
 
   logger.info("Sending WAHA text reply", {
     endpoint,
-    to: `${resolvedPhone.slice(0, 3)}***${resolvedPhone.slice(-3)}`,
+    to: asMaskedDestination(chatId),
   });
   await axios.post(
     endpoint,
@@ -569,11 +597,13 @@ const sendWahaMessage = async ({ toPhone, message }) => {
 };
 
 const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
-  const resolvedPhone = normalizeForWhatsApp(toPhone);
-  if (!resolvedPhone) {
-    throw new Error("Cannot send WAHA interactive list: invalid destination phone");
+  const rawTarget = String(toPhone || "").trim();
+  const chatId = isDirectChatId(rawTarget)
+    ? rawTarget
+    : `${normalizeForWhatsApp(rawTarget)}@c.us`;
+  if (!chatId || chatId.startsWith("@")) {
+    throw new Error("Cannot send WAHA interactive list: invalid destination");
   }
-  const chatId = `${resolvedPhone}@c.us`;
   const headers = {
     "Content-Type": "application/json",
   };
@@ -589,7 +619,7 @@ const sendWahaInteractiveList = async ({ toPhone, interactiveList }) => {
 
   logger.info("Sending WAHA list reply", {
     endpoint,
-    to: `${resolvedPhone.slice(0, 3)}***${resolvedPhone.slice(-3)}`,
+    to: asMaskedDestination(chatId),
   });
   await axios.post(
     endpoint,

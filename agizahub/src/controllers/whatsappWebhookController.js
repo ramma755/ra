@@ -68,6 +68,7 @@ const respondToUser = async ({
   interactiveList = null,
 }) => {
   if (provider === "WAHA") {
+    const destination = String(res?.locals?.wahaReplyTarget || senderPhone || "").trim();
     // WAHA may retry webhooks quickly if we don't acknowledge immediately.
     // Send HTTP 200 first, then dispatch outbound reply asynchronously.
     res.status(200).json({ ok: true, provider });
@@ -76,17 +77,17 @@ const respondToUser = async ({
         try {
           await sendGatewayReply({
             provider,
-            toPhone: senderPhone,
+            toPhone: destination,
             message,
             interactiveList,
           });
         } catch (error) {
           logger.warn("WAHA immediate reply failed, queued for retry", {
-            toPhone: senderPhone,
+            toPhone: destination,
             error: error.message,
           });
           await queueOutboundMessage({
-            toPhone: senderPhone,
+            toPhone: destination,
             message,
             interactiveList,
             error: error.message,
@@ -95,7 +96,7 @@ const respondToUser = async ({
       })
       .catch((error) => {
         logger.error("WAHA async reply dispatch failed", {
-          toPhone: senderPhone,
+          toPhone: destination,
           error: error.message,
         });
       });
@@ -5562,6 +5563,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       ignore: Boolean(inbound.ignore),
       hasMessage: Boolean(inbound.rawMessage),
       hasSender: Boolean(inbound.senderPhone),
+      hasReplyTarget: Boolean(inbound.replyTarget),
       reason: inbound.reason || null,
     });
     if (inbound.ignore) {
@@ -5580,10 +5582,12 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       rawMessage: inboundRawMessage,
       communicationPhone,
       senderPhone,
+      replyTarget,
       senderName,
       inboundLocation,
       inboundMedia,
     } = inbound;
+    res.locals.wahaReplyTarget = replyTarget || senderPhone;
     let rawMessage = normalizeIncomingMessageText(inboundRawMessage);
     const lowerMessage = rawMessage.toLowerCase();
 
