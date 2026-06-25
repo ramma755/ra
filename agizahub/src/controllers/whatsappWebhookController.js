@@ -181,6 +181,11 @@ const catalogIngestionInteractiveList = () => ({
           title: "Quick Inventory Top-Up",
           description: "Use Add stock or /update price command",
         },
+        {
+          id: "catalog_mode_5",
+          title: "Guided Item Wizard",
+          description: "Add item step-by-step: name, unit, price, stock",
+        },
       ],
     },
   ],
@@ -188,9 +193,9 @@ const catalogIngestionInteractiveList = () => ({
 
 const parseCatalogModeChoice = (rawMessage) => {
   const trimmed = String(rawMessage || "").trim();
-  const rowMatch = trimmed.match(/^catalog_mode_(\d)$/i);
+  const rowMatch = trimmed.match(/^catalog_mode_([1-5])$/i);
   if (rowMatch) return rowMatch[1];
-  const number = trimmed.match(/^([1-4])$/);
+  const number = trimmed.match(/^([1-5])$/);
   if (number) return number[1];
   return null;
 };
@@ -364,11 +369,15 @@ const helpCommandPattern = /^(?:\/?help|\/?msaada|nisaidie|saidia|help\s+me)$/i;
 const transportCommandPattern = /^(?:transport|move|hama|safirisha)$/i;
 const buyOffersViewPattern = /^(?:buy|offers|view|nunua|onyesha|bidhaa|orodha)$/i;
 const searchCommandPrefixPattern = /^(?:search|find|tafuta|tafta|nitafutie)\s+/i;
-const supplierBuyPattern = /^(?:buy|nunua|agiza)\s+(\d{5})\s+(\d+(?:\.\d+)?)$/i;
+const searchOnlyPattern = /^(?:search|find|tafuta|tafta|nitafutie)$/i;
+const supplierBuyPattern = /^(?:buy|nunua|agiza)\s+(\d{5})\s+(.+)$/i;
+const buyByItemPattern = /^(?:buy|nunua|agiza)\s+(?:item\s+)?(\d+)\s+(.+)$/i;
 const refundPattern = /^(?:refund|rejesha|rudisha)\s+([a-zA-Z0-9-]+)(?:\s+(.+))?/i;
 const addStockPrefixPattern = /^(?:add\s+stock|ongeza\s+(?:stock|hisa|stoo))\s+/i;
 const addOrUpdateInventoryPattern =
   /^(?:add\s+new\s+item|update\s+inventory|ongeza\s+bidhaa\s+mpya|sasisha\s+(?:inventory|orodha))/i;
+const sellerItemWizardStartPattern =
+  /^(?:catalog\s+wizard|add\s+item|add\s+catalog|ongeza\s+item|ongeza\s+catalog)$/i;
 const priceUpdatePrefixPattern =
   /^(?:\/?update\s+price|badili\s+bei|weka\s+bei|sahihisha\s+bei)\b/i;
 const listPricesPattern =
@@ -478,6 +487,66 @@ const parseUpdatePriceCommand = (rawMessage) => {
     catalogItemId,
     newPrice: Math.round(newPrice),
   };
+};
+
+const parseFlexibleQuantity = (rawValue) => {
+  const input = String(rawValue || "")
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, ".");
+  if (!input) return Number.NaN;
+
+  const mixed = input.match(/^(\d+)\s*(?:and|na)\s*(\d+)\s*\/\s*(\d+)$/i);
+  if (mixed) {
+    const whole = Number(mixed[1]);
+    const top = Number(mixed[2]);
+    const bottom = Number(mixed[3]);
+    if (bottom > 0) return whole + top / bottom;
+  }
+
+  const spacedMixed = input.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (spacedMixed) {
+    const whole = Number(spacedMixed[1]);
+    const top = Number(spacedMixed[2]);
+    const bottom = Number(spacedMixed[3]);
+    if (bottom > 0) return whole + top / bottom;
+  }
+
+  const fraction = input.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (fraction) {
+    const top = Number(fraction[1]);
+    const bottom = Number(fraction[2]);
+    if (bottom > 0) return top / bottom;
+  }
+
+  const numeric = Number(input);
+  return Number.isFinite(numeric) ? numeric : Number.NaN;
+};
+
+const MARKET_CATEGORY_RULES = [
+  { name: "CEREALS_GRAINS", keywords: ["maize", "unga", "flour", "rice", "beans", "lentil", "wheat", "sugar"] },
+  { name: "FOOD_GROCERY", keywords: ["tomato", "onion", "milk", "egg", "oil", "fruit", "vegetable", "bread"] },
+  { name: "ELECTRONICS_GADGETS", keywords: ["charger", "phone", "cable", "laptop", "earbuds", "tv", "screen"] },
+  { name: "CLOTHES_SHOES", keywords: ["shoe", "shirt", "dress", "trouser", "jacket", "sneaker", "heels"] },
+  { name: "FURNITURE_HOME", keywords: ["sofa", "table", "chair", "bed", "mattress", "wardrobe", "desk"] },
+  { name: "AUTO_MOTO_PARTS_REPAIR", keywords: ["tyre", "battery", "brake", "engine", "car", "bike", "repair"] },
+  { name: "HARDWARE_CONSTRUCTION", keywords: ["cement", "paint", "nail", "pipe", "wire", "tile", "timber"] },
+  { name: "BEAUTY_PERSONAL_CARE", keywords: ["soap", "lotion", "cream", "shampoo", "perfume", "makeup"] },
+];
+
+const inferMarketplaceCategory = (name) => {
+  const text = String(name || "").toLowerCase();
+  for (const rule of MARKET_CATEGORY_RULES) {
+    if (rule.keywords.some((k) => text.includes(k))) return rule.name;
+  }
+  return "GENERAL_MERCHANDISE";
+};
+
+const formatUserStepLabel = (currentStep) => {
+  const step = String(currentStep || "START").trim().toUpperCase();
+  if (step === "COMPLETED") return "ACTIVE";
+  if (step.startsWith("AWAITING_")) return `SETUP_IN_PROGRESS (${step.replace("AWAITING_", "")})`;
+  return step;
 };
 
 const parseSupplierBusinessTypeChoice = (choice) => {
@@ -607,8 +676,12 @@ const upsertSupplierCatalogItemsFromParsed = async ({
 
       const stockProvided = Number.isFinite(Number(item.stockQuantity));
       const stockValue = stockProvided ? Math.max(0, Number(item.stockQuantity)) : null;
+      const normalizedMetadata = normalizeCatalogMetadata(item.metadata) || {};
       const metadata = {
-        ...(normalizeCatalogMetadata(item.metadata) || {}),
+        ...normalizedMetadata,
+        product_category:
+          String(normalizedMetadata.product_category || "").trim() ||
+          inferMarketplaceCategory(commodity),
         source: sourceTag || "catalog-ingestion",
         ingested_at: new Date().toISOString(),
       };
@@ -758,18 +831,41 @@ const processSupplierCatalogIngestionStep = async ({
       };
     }
 
+    if (choice === "4") {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      return {
+        message:
+          "Quick top-up mode enabled. Use:\n- Add stock 50 Sugar\n- /update price 2 340\n- Add new item: Premium Milk 1L, Price 150, Stock 20",
+      };
+    }
+
     await query(
       `
         UPDATE platform_users
-        SET current_step = 'COMPLETED',
+        SET current_step = 'AWAITING_SELLER_ITEM_NAME',
+            pending_transport_payload = $2::jsonb,
             updated_at = NOW()
         WHERE id = $1
       `,
-      [user.id]
+      [
+        user.id,
+        JSON.stringify({
+          source: "seller-item-wizard",
+          itemsAdded: 0,
+        }),
+      ]
     );
     return {
       message:
-        "Quick top-up mode enabled. Use:\n- Add stock 50 Sugar\n- /update price 2 340\n- Add new item: Premium Milk 1L, Price 150, Stock 20",
+        "Guided Item Wizard started.\nStep 1/4: Send product name.\nExample: Maize Flour 2kg",
     };
   }
 
@@ -879,6 +975,312 @@ const processSupplierCatalogIngestionStep = async ({
   return null;
 };
 
+const parseWizardPayload = (value) => {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return {};
+  }
+};
+
+const startSupplierItemWizard = async ({ user }) => {
+  await query(
+    `
+      UPDATE platform_users
+      SET current_step = 'AWAITING_SELLER_ITEM_NAME',
+          pending_transport_payload = $2::jsonb,
+          updated_at = NOW()
+      WHERE id = $1
+    `,
+    [
+      user.id,
+      JSON.stringify({
+        source: "seller-item-wizard",
+        itemsAdded: 0,
+      }),
+    ]
+  );
+  return [
+    "Catalog Wizard started ✅",
+    "Step 1/4: Send product name.",
+    "Example: USB-C Charger 20W",
+    "Type cancel to stop.",
+  ].join("\n");
+};
+
+const saveWizardCatalogItem = async ({
+  user,
+  senderPhone,
+  itemName,
+  unitMeasure,
+  priceKes,
+  stockQuantity,
+}) => {
+  const productCategory = inferMarketplaceCategory(itemName);
+  const metadata = {
+    source: "seller-item-wizard",
+    product_category: productCategory,
+    updated_by_phone: senderPhone,
+    updated_at: new Date().toISOString(),
+  };
+
+  const existing = await query(
+    `
+      SELECT id
+      FROM catalog_items
+      WHERE seller_masked_id = $1
+        AND LOWER(commodity_name) = LOWER($2)
+      LIMIT 1
+    `,
+    [user.masked_id, itemName]
+  );
+
+  if (existing.rowCount > 0) {
+    const updated = await query(
+      `
+        UPDATE catalog_items
+        SET price_per_unit = $2,
+            unit_measure = $3,
+            stock_quantity = $4,
+            business_type = $5,
+            catalog_metadata = COALESCE(catalog_metadata, '{}'::jsonb) || $6::jsonb,
+            is_active = TRUE,
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id
+      `,
+      [
+        existing.rows[0].id,
+        Math.round(priceKes),
+        unitMeasure,
+        stockQuantity,
+        normalizeSupplierBusinessType(user.business_type),
+        JSON.stringify(metadata),
+      ]
+    );
+    return { catalogItemId: Number(updated.rows[0].id), mode: "updated", productCategory };
+  }
+
+  const inserted = await query(
+    `
+      INSERT INTO catalog_items (
+        seller_masked_id,
+        commodity_name,
+        price_per_unit,
+        unit_measure,
+        stock_quantity,
+        business_type,
+        catalog_metadata,
+        is_active,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, TRUE, NOW(), NOW())
+      RETURNING id
+    `,
+    [
+      user.masked_id,
+      itemName,
+      Math.round(priceKes),
+      unitMeasure,
+      stockQuantity,
+      normalizeSupplierBusinessType(user.business_type),
+      JSON.stringify(metadata),
+    ]
+  );
+  return { catalogItemId: Number(inserted.rows[0].id), mode: "created", productCategory };
+};
+
+const processSupplierItemWizardStep = async ({ user, rawMessage, senderPhone }) => {
+  const trimmed = String(rawMessage || "").trim();
+  const lower = trimmed.toLowerCase();
+  if (!trimmed) return "Please send a value to continue.";
+
+  if (["cancel", "back", "acha", "sitisha"].includes(lower)) {
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'COMPLETED',
+            pending_transport_payload = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id]
+    );
+    return "Catalog wizard cancelled.";
+  }
+
+  const payload = parseWizardPayload(user.pending_transport_payload);
+  if (payload.source !== "seller-item-wizard") {
+    payload.source = "seller-item-wizard";
+    payload.itemsAdded = Number(payload.itemsAdded || 0);
+  }
+
+  if (user.current_step === "AWAITING_SELLER_ITEM_NAME") {
+    const name = trimmed.slice(0, 50);
+    if (name.length < 2) return "Product name too short. Example: Maize Flour 2kg";
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SELLER_ITEM_UNIT',
+            pending_transport_payload = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        user.id,
+        JSON.stringify({
+          ...payload,
+          itemName: name,
+          productCategory: inferMarketplaceCategory(name),
+        }),
+      ]
+    );
+    return [
+      `Step 2/4: Send unit/pack size for "${name}".`,
+      "Examples: 1kg, 1/2kg, 1/4kg, 1ltr, piece, pair, 2kg",
+    ].join("\n");
+  }
+
+  if (user.current_step === "AWAITING_SELLER_ITEM_UNIT") {
+    const unit = trimmed.slice(0, 20);
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SELLER_ITEM_PRICE',
+            pending_transport_payload = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        user.id,
+        JSON.stringify({
+          ...payload,
+          unitMeasure: unit,
+        }),
+      ]
+    );
+    return `Step 3/4: Send price in KSh for one ${unit}. Example: 180`;
+  }
+
+  if (user.current_step === "AWAITING_SELLER_ITEM_PRICE") {
+    const price = Number(trimmed.replace(/[^\d.]/g, ""));
+    if (!Number.isFinite(price) || price <= 0) {
+      return "Invalid price. Send a number only. Example: 180";
+    }
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SELLER_ITEM_STOCK',
+            pending_transport_payload = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        user.id,
+        JSON.stringify({
+          ...payload,
+          priceKes: Math.round(price),
+        }),
+      ]
+    );
+    return "Step 4/4: Send current stock quantity (number of units available). Example: 40";
+  }
+
+  if (user.current_step === "AWAITING_SELLER_ITEM_STOCK") {
+    const stock = Number(trimmed.replace(/[^\d]/g, ""));
+    if (!Number.isFinite(stock) || stock < 0) {
+      return "Invalid stock quantity. Send a whole number. Example: 40";
+    }
+    const itemName = String(payload.itemName || "").trim();
+    const unitMeasure = String(payload.unitMeasure || "").trim() || "unit";
+    const priceKes = Number(payload.priceKes || 0);
+    if (!itemName || !Number.isFinite(priceKes) || priceKes <= 0) {
+      return "Wizard context expired. Type 'catalog wizard' to restart.";
+    }
+
+    const saved = await saveWizardCatalogItem({
+      user,
+      senderPhone,
+      itemName,
+      unitMeasure,
+      priceKes,
+      stockQuantity: stock,
+    });
+
+    const nextPayload = {
+      source: "seller-item-wizard",
+      itemsAdded: Number(payload.itemsAdded || 0) + 1,
+      lastItemId: saved.catalogItemId,
+      lastItemName: itemName,
+    };
+    await query(
+      `
+        UPDATE platform_users
+        SET current_step = 'AWAITING_SELLER_ITEM_CONTINUE',
+            pending_transport_payload = $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+      `,
+      [user.id, JSON.stringify(nextPayload)]
+    );
+
+    return [
+      `Saved (${saved.mode}) ✅ ID ${saved.catalogItemId}: ${itemName}`,
+      `Category: ${saved.productCategory.replace(/_/g, " ")}`,
+      "Reply 1 to add next product, or 2 to finish and view full catalog table.",
+    ].join("\n");
+  }
+
+  if (user.current_step === "AWAITING_SELLER_ITEM_CONTINUE") {
+    if (["1", "yes", "next", "endelea"].includes(lower)) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'AWAITING_SELLER_ITEM_NAME',
+              pending_transport_payload = $2::jsonb,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [
+          user.id,
+          JSON.stringify({
+            source: "seller-item-wizard",
+            itemsAdded: Number(payload.itemsAdded || 0),
+          }),
+        ]
+      );
+      return "Step 1/4: Send next product name.";
+    }
+
+    if (["2", "done", "finish", "no", "hapana"].includes(lower)) {
+      await query(
+        `
+          UPDATE platform_users
+          SET current_step = 'COMPLETED',
+              pending_transport_payload = NULL,
+              updated_at = NOW()
+          WHERE id = $1
+        `,
+        [user.id]
+      );
+      const table = await listSupplierCatalogPricesMessage({
+        sellerMaskedId: user.masked_id,
+      });
+      return [
+        `Catalog wizard complete. Items captured: ${Number(payload.itemsAdded || 0)}.`,
+        "",
+        table,
+      ].join("\n");
+    }
+    return "Reply 1 to add next product, or 2 to finish.";
+  }
+
+  return null;
+};
+
 const parseTransportCategory = (choice) => {
   if (choice === "1") return "COMMERCIAL_FREIGHT";
   if (choice === "2") return "PERSONAL_RELOCATION";
@@ -983,6 +1385,24 @@ const resolvePlatformTransporter = async (client) =>
     `
   );
 
+const trimForTable = (value, maxLen) => {
+  const text = String(value || "");
+  if (text.length <= maxLen) return text.padEnd(maxLen, " ");
+  return `${text.slice(0, Math.max(0, maxLen - 1))}…`;
+};
+
+const renderTextTable = ({ headers, rows, widths }) => {
+  const formatRow = (cols) =>
+    cols
+      .map((col, idx) => trimForTable(col, widths[idx]))
+      .join(" | ")
+      .trimEnd();
+  const divider = widths.map((w) => "-".repeat(w)).join("-+-");
+  const lines = [formatRow(headers), divider];
+  rows.forEach((row) => lines.push(formatRow(row)));
+  return ["```", ...lines, "```"].join("\n");
+};
+
 const listCatalogOffersMessage = async () => {
   const result = await query(
     `
@@ -997,6 +1417,7 @@ const listCatalogOffersMessage = async () => {
         c.unit_measure,
         c.location_label,
         c.business_type,
+        c.catalog_metadata,
         c.stock_quantity,
         u.masked_id,
         u.company_name,
@@ -1022,8 +1443,9 @@ const listCatalogOffersMessage = async () => {
     return "Hakuna offers kwa sasa. Suppliers wanapakia stock hivi karibuni.";
   }
 
-  const lines = ["Available Offers Today:"];
-  for (const item of result.rows) {
+  const rows = [];
+  const hints = [];
+  for (const item of result.rows.slice(0, 12)) {
     const effectivePrice = resolveEffectiveUnitPrice({
       basePrice: Number(item.price_per_unit || 0),
       quantity: 1,
@@ -1031,24 +1453,34 @@ const listCatalogOffersMessage = async () => {
       flashDiscountEndsAt: item.flash_discount_ends_at,
       bulkDiscountTiers: item.bulk_discount_tiers,
     });
-    const promotedTag =
-      item.promoted_until && new Date(item.promoted_until).getTime() > Date.now()
-        ? " [PROMOTED]"
-        : "";
-    const tierTag = item.seller_tier === "PREMIUM" ? " PREMIUM" : "";
-    lines.push(
-      "",
-      `${item.commodity_name}`,
-      `Seller: ${item.company_name || `Supplier #${item.masked_id}`} (ID: #${item.masked_id}) [VERIFIED${tierTag}]${promotedTag}`,
-      `Business Type: ${item.business_type || "WHOLESALE"}`,
-      `Price: KSh ${Number(effectivePrice).toLocaleString()} per ${item.unit_measure}`,
-      `Stock: ${Number(item.stock_quantity || 0).toLocaleString()}`,
-      `Location: ${item.location_label}`,
-      `To purchase: Buy ${item.masked_id} 10`,
-      `Or search row: search_select_${item.catalog_item_id}_${item.masked_id}`
+    const category =
+      item.catalog_metadata?.product_category ||
+      inferMarketplaceCategory(item.commodity_name || item.business_type);
+    rows.push([
+      String(item.catalog_item_id),
+      item.commodity_name || "Item",
+      item.unit_measure || "unit",
+      Number(effectivePrice || 0).toLocaleString(),
+      Number(item.stock_quantity || 0).toLocaleString(),
+      category.replace(/_/g, " ").slice(0, 10),
+    ]);
+    hints.push(
+      `#${item.catalog_item_id} by ${item.company_name || `Seller #${item.masked_id}`} (seller #${item.masked_id})`
     );
   }
-  return lines.join("\n");
+  return [
+    "Available Offers (easy view)",
+    renderTextTable({
+      headers: ["ID", "PRODUCT", "UNIT", "PRICE", "STOCK", "CATEGORY"],
+      widths: [4, 18, 8, 8, 7, 10],
+      rows,
+    }),
+    "Buy using: buy item <ID> <qty>  (example: buy item 12 1.5)",
+    "Search using: search <product>  (example: search charger)",
+    "",
+    "Seller references:",
+    ...hints,
+  ].join("\n");
 };
 
 const listCategoriesMessage = async () => {
@@ -1126,8 +1558,8 @@ const listCatalogByCategoryMessage = async ({ categoryType }) => {
   if (result.rowCount === 0) {
     return `No active items found under ${categoryType}.`;
   }
-  const lines = [`${categoryType} listings:`];
-  for (const row of result.rows) {
+  const tableRows = [];
+  for (const row of result.rows.slice(0, 20)) {
     const effectivePrice = resolveEffectiveUnitPrice({
       basePrice: Number(row.price_per_unit || 0),
       quantity: 1,
@@ -1135,18 +1567,23 @@ const listCatalogByCategoryMessage = async ({ categoryType }) => {
       flashDiscountEndsAt: row.flash_discount_ends_at,
       bulkDiscountTiers: row.bulk_discount_tiers,
     });
-    const verified = row.merchant_agreement_status === "ACCEPTED" ? " [VERIFIED]" : "";
-    lines.push(
-      "",
-      `ID ${row.catalog_item_id}: ${row.commodity_name}`,
-      `Seller: ${row.company_name || `#${row.masked_id}`}${verified}${
-        row.seller_tier === "PREMIUM" ? " [PREMIUM]" : ""
-      }`,
-      `Price: KSh ${Number(effectivePrice).toLocaleString()} / ${row.unit_measure || "unit"}`,
-      `Stock: ${Number(row.stock_quantity || 0).toLocaleString()}`
-    );
+    tableRows.push([
+      String(row.catalog_item_id),
+      row.commodity_name || "Item",
+      Number(effectivePrice || 0).toLocaleString(),
+      Number(row.stock_quantity || 0).toLocaleString(),
+      row.company_name || `#${row.masked_id}`,
+    ]);
   }
-  return lines.join("\n");
+  return [
+    `${categoryType.replace(/_/g, " ")} listings`,
+    renderTextTable({
+      headers: ["ID", "PRODUCT", "PRICE", "STOCK", "SELLER"],
+      widths: [4, 18, 9, 7, 14],
+      rows: tableRows,
+    }),
+    "To buy: buy item <ID> <qty>",
+  ].join("\n");
 };
 
 const compareItemPricesMessage = async ({ searchTerm }) => {
@@ -1179,7 +1616,7 @@ const compareItemPricesMessage = async ({ searchTerm }) => {
   if (result.rowCount === 0) {
     return `No comparison offers found for "${searchTerm}".`;
   }
-  const lines = [`Top ${result.rowCount} price comparison for "${searchTerm}":`];
+  const tableRows = [];
   result.rows.forEach((row, idx) => {
     const effectivePrice = resolveEffectiveUnitPrice({
       basePrice: Number(row.price_per_unit || 0),
@@ -1188,16 +1625,23 @@ const compareItemPricesMessage = async ({ searchTerm }) => {
       flashDiscountEndsAt: row.flash_discount_ends_at,
       bulkDiscountTiers: row.bulk_discount_tiers,
     });
-    lines.push(
-      "",
-      `${idx + 1}. ${row.company_name || `Seller #${row.masked_id}`} - KSh ${Number(
-        effectivePrice
-      ).toLocaleString()}`,
-      `Item ID: ${row.catalog_item_id} | Stock: ${Number(row.stock_quantity || 0).toLocaleString()}`,
-      `${row.location_label || "Location"} | ${row.unit_measure || "unit"}`
-    );
+    tableRows.push([
+      String(idx + 1),
+      String(row.catalog_item_id),
+      row.company_name || `#${row.masked_id}`,
+      Number(effectivePrice || 0).toLocaleString(),
+      Number(row.stock_quantity || 0).toLocaleString(),
+    ]);
   });
-  return lines.join("\n");
+  return [
+    `Top ${result.rowCount} price comparison for "${searchTerm}"`,
+    renderTextTable({
+      headers: ["#", "ID", "SELLER", "PRICE", "STOCK"],
+      widths: [2, 4, 14, 8, 6],
+      rows: tableRows,
+    }),
+    "To buy: buy item <ID> <qty>",
+  ].join("\n");
 };
 
 const productDetailCardMessage = async ({ catalogItemId }) => {
@@ -1227,6 +1671,8 @@ const productDetailCardMessage = async ({ catalogItemId }) => {
   );
   if (result.rowCount === 0) return "Product not found.";
   const row = result.rows[0];
+  const inferredCategory =
+    row.catalog_metadata?.product_category || inferMarketplaceCategory(row.commodity_name);
   const effectivePrice = resolveEffectiveUnitPrice({
     basePrice: Number(row.price_per_unit || 0),
     quantity: 1,
@@ -1240,7 +1686,7 @@ const productDetailCardMessage = async ({ catalogItemId }) => {
     `Name: ${row.commodity_name}`,
     `Seller: ${row.company_name || `#${row.masked_id}`}`,
     `Verified Seller: ${verified}`,
-    `Category: ${row.business_type || "N/A"}`,
+    `Category: ${inferredCategory.replace(/_/g, " ")}`,
     `Price: KSh ${Number(effectivePrice).toLocaleString()} / ${row.unit_measure || "unit"}`,
     `Stock: ${Number(row.stock_quantity || 0).toLocaleString()} (${
       Number(row.stock_quantity || 0) > 0 ? "IN STOCK" : "OUT OF STOCK"
@@ -1258,6 +1704,7 @@ const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
         price_per_unit,
         unit_measure,
         stock_quantity,
+        catalog_metadata,
         is_active
       FROM catalog_items
       WHERE seller_masked_id = $1
@@ -1271,20 +1718,31 @@ const listSupplierCatalogPricesMessage = async ({ sellerMaskedId }) => {
     return "No catalog items found. Add one with: Add new item: Product Name, Price 150, Stock 20";
   }
 
-  const lines = [
-    "Your catalog price list (use ID with /update price <ID> <NEW_PRICE> or badili bei <ID> <NEW_PRICE>):",
-  ];
-  for (const row of result.rows) {
-    lines.push(
-      "",
-      `ID ${row.id}: ${row.commodity_name}`,
-      `Price: KSh ${Number(row.price_per_unit || 0).toLocaleString()} per ${row.unit_measure || "unit"}`,
-      `Stock: ${Number(row.stock_quantity || 0).toLocaleString()} | ${
-        row.is_active ? "ACTIVE" : "INACTIVE"
-      }`
-    );
-  }
-  return lines.join("\n");
+  const tableRows = result.rows.map((row) => [
+    String(row.id),
+    row.commodity_name || "Item",
+    row.unit_measure || "unit",
+    Number(row.price_per_unit || 0).toLocaleString(),
+    Number(row.stock_quantity || 0).toLocaleString(),
+    String(
+      row.catalog_metadata?.product_category || inferMarketplaceCategory(row.commodity_name)
+    )
+      .replace(/_/g, " ")
+      .slice(0, 8),
+    row.is_active ? "ACTIVE" : "INACTIVE",
+  ]);
+  return [
+    "Your catalog table",
+    renderTextTable({
+      headers: ["ID", "PRODUCT", "UNIT", "PRICE", "STOCK", "CAT", "STATUS"],
+      widths: [4, 16, 8, 8, 6, 8, 8],
+      rows: tableRows,
+    }),
+    "Edit commands:",
+    "- /update price <ID> <NEW_PRICE>",
+    "- add stock <QTY> <ITEM NAME>",
+    "- delete item <ID>",
+  ].join("\n");
 };
 
 const getCartItemsForBuyer = async ({ buyerMaskedId }) => {
@@ -1627,29 +2085,54 @@ const buildSearchInteractiveList = ({ searchTerm, rankedRows }) => {
 
 const buildSearchTextList = ({ searchTerm, rankedRows }) => {
   const lines = [`Search results for "${searchTerm}" (choose one):`];
+  const tableRows = rankedRows.slice(0, 10).map((row, idx) => [
+    String(idx + 1),
+    String(row.catalog_item_id),
+    row.commodity_name || "Item",
+    Number(row.effectivePrice || row.price_per_unit || 0).toLocaleString(),
+    row.unit_measure || "unit",
+    Number(row.stock_quantity || 0).toLocaleString(),
+  ]);
+  lines.push(
+    renderTextTable({
+      headers: ["#", "ID", "PRODUCT", "PRICE", "UNIT", "STOCK"],
+      widths: [2, 4, 16, 8, 7, 6],
+      rows: tableRows,
+    })
+  );
   rankedRows.slice(0, 10).forEach((row, idx) => {
     lines.push(
-      "",
-      `${idx + 1}. ${row.company_name || `Seller #${row.seller_masked_id}`} - KSh ${Number(
-        row.effectivePrice || row.price_per_unit
-      ).toLocaleString()}`,
-      `${row.unit_measure || "unit"} | ${row.location_label || "Location"}`,
-      `ID: search_select_${row.catalog_item_id}_${row.seller_masked_id}`
+      `${idx + 1}. Seller: ${row.company_name || `Seller #${row.seller_masked_id}`} | Location: ${
+        row.location_label || "Location"
+      }`,
+      `   Select with: ${idx + 1} OR search_select_${row.catalog_item_id}_${row.seller_masked_id}`
     );
   });
-  lines.push("", "Reply with the row ID above to continue.");
+  lines.push("", "Reply with row number (1..10), or full selection ID, or 2 to cancel.");
   return lines.join("\n");
 };
 
 const parseSearchSelectionId = (rawMessage) => {
-  const match = String(rawMessage || "")
+  const trimmed = String(rawMessage || "").trim();
+  const match = trimmed
     .trim()
     .match(/^search_select_(\d+)_([0-9]{5})$/i);
-  if (!match) return null;
-  return {
-    catalogItemId: Number(match[1]),
-    sellerMaskedId: match[2],
-  };
+  if (match) {
+    return {
+      catalogItemId: Number(match[1]),
+      sellerMaskedId: match[2],
+      rowNumber: null,
+    };
+  }
+  const rowNumberMatch = trimmed.match(/^(?:row\s*)?([1-9]|10)$/i);
+  if (rowNumberMatch) {
+    return {
+      catalogItemId: null,
+      sellerMaskedId: null,
+      rowNumber: Number(rowNumberMatch[1]),
+    };
+  }
+  return null;
 };
 
 const buildSearchQuantityPrompt = ({ row }) =>
@@ -1800,7 +2283,7 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
       const phone = row.phone_number ? maskBuyerPhone(row.phone_number) : "--";
       const profile = row.company_name || "Unnamed";
       return `${index + 1}. #${row.masked_id} | ${row.user_type || "UNSET"} | ${profile} | ${phone} | ${
-        row.current_step || "START"
+        formatUserStepLabel(row.current_step || "START")
       }`;
     });
     return ["Recent users (latest 15):", ...lines].join("\n");
@@ -4339,7 +4822,7 @@ const processLegacyAiOrder = async ({ rawMessage, senderPhone, senderName }) => 
   if (parsed.intent !== "order_request") {
     return {
       errorMessage:
-        "Sijaelewa order. Tumia Buy [Seller ID] [Qty] ama andika 'buy' kuona offers.",
+        "Sijaelewa order. Tumia: buy item <ItemID> <Qty> (mfano: buy item 12 1.5), au andika 'buy' kuona offers.",
     };
   }
 
@@ -5334,20 +5817,35 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       }
 
       let selection = parseSearchSelectionId(rawMessage);
-      if (!selection && rawMessage.trim() === "1") {
-        let pending = user.pending_transport_payload || {};
-        if (typeof pending === "string") {
-          try {
-            pending = JSON.parse(pending);
-          } catch (_error) {
-            pending = {};
-          }
+      let pending = user.pending_transport_payload || {};
+      if (typeof pending === "string") {
+        try {
+          pending = JSON.parse(pending);
+        } catch (_error) {
+          pending = {};
         }
+      }
+
+      if (selection?.rowNumber) {
+        const rowOption = Array.isArray(pending.options) ? pending.options[selection.rowNumber - 1] : null;
+        if (rowOption) {
+          selection = {
+            catalogItemId: Number(rowOption.catalogItemId),
+            sellerMaskedId: String(rowOption.sellerMaskedId),
+            rowNumber: selection.rowNumber,
+          };
+        } else {
+          selection = null;
+        }
+      }
+
+      if (!selection && rawMessage.trim() === "1") {
         const firstOption = Array.isArray(pending.options) ? pending.options[0] : null;
         if (firstOption) {
           selection = {
             catalogItemId: Number(firstOption.catalogItemId),
             sellerMaskedId: String(firstOption.sellerMaskedId),
+            rowNumber: 1,
           };
         }
       }
@@ -5357,7 +5855,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           provider,
           senderPhone,
           message:
-            "Reply with a valid selection ID (search_select_<catalog>_<seller>), 1 for best option, or 2 to cancel.",
+            "Reply with row number (1..10), or selection ID (search_select_<catalog>_<seller>), or 2 to cancel.",
         });
       }
 
@@ -5450,13 +5948,13 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
 
-      const qty = Number(rawMessage.trim());
+      const qty = parseFlexibleQuantity(rawMessage.trim());
       if (!Number.isFinite(qty) || qty <= 0) {
         return respondToUser({
           res,
           provider,
           senderPhone,
-          message: "Please send a valid quantity number (or 0 to cancel).",
+          message: "Please send a valid quantity (examples: 1, 1.5, 1/2) or 0 to cancel.",
         });
       }
 
@@ -5666,6 +6164,26 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       }
     }
 
+    if (
+      user.current_step === "AWAITING_SELLER_ITEM_NAME" ||
+      user.current_step === "AWAITING_SELLER_ITEM_UNIT" ||
+      user.current_step === "AWAITING_SELLER_ITEM_PRICE" ||
+      user.current_step === "AWAITING_SELLER_ITEM_STOCK" ||
+      user.current_step === "AWAITING_SELLER_ITEM_CONTINUE"
+    ) {
+      const response = await processSupplierItemWizardStep({
+        user,
+        rawMessage,
+        senderPhone,
+      });
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: response || "Catalog wizard state reset. Type catalog wizard to restart.",
+      });
+    }
+
     if (!user.user_type || user.current_step !== "COMPLETED") {
       const onboardingResponse = await processOnboardingStep({
         user,
@@ -5678,6 +6196,15 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         provider,
         senderPhone,
         message: onboardingResponse,
+      });
+    }
+
+    if (user.user_type === "SUPPLIER" && sellerItemWizardStartPattern.test(rawMessage.trim())) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: await startSupplierItemWizard({ user }),
       });
     }
 
@@ -5945,6 +6472,23 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         senderPhone,
         message: buildSearchTextList({ searchTerm, rankedRows }),
         interactiveList: buildSearchInteractiveList({ searchTerm, rankedRows }),
+      });
+    }
+
+    if (user.user_type === "BUYER" && searchOnlyPattern.test(rawMessage.trim())) {
+      return respondToUser({
+        res,
+        provider,
+        senderPhone,
+        message: [
+          "Search needs a product name.",
+          "Examples:",
+          "- search charger",
+          "- search maize flour",
+          "- search tv",
+          "",
+          "Tip: type 'buy' to see current offers table.",
+        ].join("\n"),
       });
     }
 
@@ -6751,14 +7295,66 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
 
+      const itemBuyMatch = rawMessage.match(buyByItemPattern);
+      if (itemBuyMatch) {
+        const catalogItemId = Number(itemBuyMatch[1]);
+        const qty = parseFlexibleQuantity(itemBuyMatch[2]);
+        if (!Number.isFinite(catalogItemId) || catalogItemId <= 0 || !Number.isFinite(qty) || qty <= 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Use: buy item <item_id> <qty>. Examples: buy item 12 1.5 OR buy item 12 1/2",
+          });
+        }
+
+        const itemOwner = await query(
+          `
+            SELECT seller_masked_id
+            FROM catalog_items
+            WHERE id = $1
+              AND is_active = TRUE
+            LIMIT 1
+          `,
+          [catalogItemId]
+        );
+        if (itemOwner.rowCount > 0) {
+          const payload = await createOrderFromCatalogRequest({
+            buyer: user,
+            senderPhone,
+            rawMessage,
+            sellerMaskedId: itemOwner.rows[0].seller_masked_id,
+            quantity: qty,
+            catalogItemId,
+          });
+          await notifySellerForLogisticsDecision({ payload });
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message:
+              "Order submitted. Waiting seller stock + logistics confirmation before payment prompt.",
+          });
+        }
+      }
+
       const buyMatch = rawMessage.match(supplierBuyPattern);
       if (buyMatch) {
+        const qty = parseFlexibleQuantity(buyMatch[2]);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          return respondToUser({
+            res,
+            provider,
+            senderPhone,
+            message: "Invalid quantity. Example: buy 14528 1.5 or buy 14528 1/2",
+          });
+        }
         const payload = await createOrderFromCatalogRequest({
           buyer: user,
           senderPhone,
           rawMessage,
           sellerMaskedId: buyMatch[1],
-          quantity: Number(buyMatch[2]),
+          quantity: qty,
         });
         await notifySellerForLogisticsDecision({ payload });
 
@@ -7071,6 +7667,49 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         message:
           "Escrow code verified. Order moved to AWAITING_RELEASE and sent to admin for final approval.",
       });
+    }
+
+    if (
+      user.user_type === "BUYER" &&
+      /^[a-zA-Z][a-zA-Z0-9\s\-]{2,50}$/i.test(rawMessage.trim())
+    ) {
+      const plainTerm = rawMessage.trim();
+      const rowsResult = await searchCatalogRows({
+        searchTerm: plainTerm,
+      });
+      const rankedRows = rankSearchRowsForBuyer({
+        rows: rowsResult.rows,
+        buyer: user,
+      });
+      if (rankedRows.length > 0) {
+        await query(
+          `
+            UPDATE platform_users
+            SET current_step = 'AWAITING_SEARCH_SELECTION',
+                pending_transport_payload = $2,
+                updated_at = NOW()
+            WHERE id = $1
+          `,
+          [
+            user.id,
+            JSON.stringify({
+              source: "plain-text-auto-search",
+              searchTerm: plainTerm,
+              options: rankedRows.slice(0, 10).map((row) => ({
+                catalogItemId: row.catalog_item_id,
+                sellerMaskedId: row.seller_masked_id,
+              })),
+            }),
+          ]
+        );
+        return respondToUser({
+          res,
+          provider,
+          senderPhone,
+          message: buildSearchTextList({ searchTerm: plainTerm, rankedRows }),
+          interactiveList: buildSearchInteractiveList({ searchTerm: plainTerm, rankedRows }),
+        });
+      }
     }
 
     const legacyResult = await processLegacyAiOrder({

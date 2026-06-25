@@ -375,6 +375,8 @@ Expected outcome:
 ## 10) Marketplace command quickstart
 
 - Buyer:
+  - `buy` -> table view of active offers
+  - `buy item <catalog_item_id> <qty>` (supports `1/2`, `1.5`, `2`)
   - `categories` -> browse numbered departments
   - `category <number|name>` -> list products by department
   - `search <item>` / `compare <item>` / `detail <catalog_item_id>`
@@ -388,6 +390,7 @@ Expected outcome:
   - `status [order_id]`, `rate <order_id> <1-5> [comment]`
   - `my referral`, `refer <code>`, `points`
 - Supplier:
+  - `catalog wizard` -> guided step-by-step item capture (name -> unit -> price -> stock)
   - `/update price <item_id> <new_price>`, `my prices`
   - `delete item <item_id>`
   - `lowstock <item_id> <threshold>`

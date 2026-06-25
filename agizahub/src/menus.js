@@ -131,8 +131,9 @@ const MENUS = {
       "2️⃣  Upload document (Excel/Word/PDF/CSV)",
       "3️⃣  Upload photo (menu board / list)",
       "4️⃣  Quick top-up (Add stock / Update price)",
+      "5️⃣  Guided wizard (Name -> Unit -> Price -> Stock)",
       "",
-      "Reply with 1, 2, 3 or 4.",
+      "Reply with 1, 2, 3, 4 or 5.",
     ].join("\n"),
 
   HELP_CENTER: () =>
