@@ -358,7 +358,7 @@ Expected outcome:
   - admin phone whitelist (`ADMIN_WHATSAPP_PHONE` / `ADMIN_WHATSAPP_PHONES` / `ADMIN_PHONE_1..3`)
   - token-based privileged session (`ADMIN_REQUIRE_TOKEN=true`)
   - commands:
-    - `admin token` (issue 4-digit code)
+    - `admin token` (issue random one-time 4-digit code)
     - `verify <code>` or `<code>` (start privileged session)
     - `logout` (end session)
     - `broadcast buyers <message>` (promo blast)

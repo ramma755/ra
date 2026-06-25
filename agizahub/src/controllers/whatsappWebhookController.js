@@ -4645,7 +4645,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
           res,
           provider,
           senderPhone,
-          message: `${adminAcknowledgeText()}\n🔐 Admin token: ${issued.token}\nValid for ${issued.expiresInMinutes} minutes.\nReply with: verify <code> OR just <code>.`,
+          message: `${adminAcknowledgeText()}\n🔐 Admin token (random one-time code): ${issued.token}\nValid for ${issued.expiresInMinutes} minutes.\nReply with: verify <code> OR just <code>.`,
         });
       }
 
