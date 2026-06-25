@@ -308,6 +308,7 @@ const adminTokenPlainCodePattern = /^(\d{4})$/;
 const adminLogoutPattern = /^(?:10|admin\s+logout|logout)$/i;
 const adminUnmutePattern = /^(?:unmute|unban)\s+(\+?\d{9,15})$/i;
 const adminBroadcastBuyersPattern = /^(?:broadcast\s+buyers|promo\s+buyers)\s+(.+)/i;
+const adminBroadcastSellersPattern = /^(?:broadcast\s+sellers|promo\s+sellers)\s+(.+)/i;
 const adminBroadcastAllPattern = /^(?:broadcast\s+all|promo\s+all)\s+(.+)/i;
 const adminPayoutApprovePattern = /^(?:payout\s+approve)\s+(\d+)$/i;
 const adminRevenuePattern = /^(?:revenue|dashboard)(?:\s+today)?$/i;
@@ -319,6 +320,34 @@ const adminSetTierPattern = /^(?:set\s+tier)\s+(\d{5})\s+(free|premium)$/i;
 const adminAcknowledgeText = () =>
   `Admin acknowledged: ${env.admin.name}. I am ready to execute privileged commands.`;
 const adminCommandMenu = () => MENUS.ADMIN_MENU();
+const adminPendingActions = new Map();
+const ADMIN_PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
+const adminExplicitCommandPattern =
+  /^(?:release|hold|approve|reject|unmute|unban|payout\s+approve|payout\s+reject|revenue|dashboard|override|force\s+refund|close\s+order|force\s+close|set\s+tier|broadcast\s+buyers|broadcast\s+sellers|broadcast\s+all|promo\s+buyers|promo\s+sellers|promo\s+all)\b/i;
+
+const setAdminPendingAction = ({ senderPhone, actionType }) => {
+  adminPendingActions.set(senderPhone, {
+    actionType,
+    createdAt: Date.now(),
+  });
+};
+
+const clearAdminPendingAction = ({ senderPhone }) => {
+  adminPendingActions.delete(senderPhone);
+};
+
+const getAdminPendingAction = ({ senderPhone }) => {
+  const state = adminPendingActions.get(senderPhone);
+  if (!state) return null;
+  if (Date.now() - Number(state.createdAt || 0) > ADMIN_PENDING_ACTION_TTL_MS) {
+    adminPendingActions.delete(senderPhone);
+    return null;
+  }
+  return state;
+};
+
+const isExplicitAdminCommand = (input) => adminExplicitCommandPattern.test(String(input || "").trim());
+const looksLikeOrderId = (input) => /^[a-zA-Z0-9-]{6,}$/.test(String(input || "").trim());
 
 const normalizeIncomingMessageText = (value) =>
   String(value || "")
@@ -1656,6 +1685,55 @@ const isAdminPhone = (communicationPhone, senderPhone) => {
 const handleAdminCommand = async (rawMessage, senderPhone) => {
   const trimmed = String(rawMessage || "").trim();
   const lower = trimmed.toLowerCase();
+  const pendingAction = getAdminPendingAction({ senderPhone });
+
+  if (pendingAction) {
+    if (isExplicitAdminCommand(trimmed)) {
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(trimmed, senderPhone);
+    }
+
+    if (["cancel", "back", "menu", "admin menu", "0"].includes(lower)) {
+      clearAdminPendingAction({ senderPhone });
+      return "Pending admin action cancelled.";
+    }
+
+    if (pendingAction.actionType === "RELEASE_ORDER") {
+      if (!looksLikeOrderId(trimmed)) {
+        return "Please send a valid ORDER-ID to release (example: 7a2f1c80-... or AGZ12345).";
+      }
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(`release ${trimmed}`, senderPhone);
+    }
+    if (pendingAction.actionType === "FORCE_REFUND_ORDER") {
+      if (!looksLikeOrderId(trimmed)) {
+        return "Please send a valid ORDER-ID to refund (example: 7a2f1c80-... or AGZ12345).";
+      }
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(`force refund ${trimmed}`, senderPhone);
+    }
+    if (pendingAction.actionType === "CLOSE_ORDER") {
+      if (!looksLikeOrderId(trimmed)) {
+        return "Please send a valid ORDER-ID to close (example: 7a2f1c80-... or AGZ12345).";
+      }
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(`close order ${trimmed}`, senderPhone);
+    }
+    if (pendingAction.actionType === "BROADCAST_BUYERS") {
+      if (trimmed.length < 2) {
+        return "Broadcast message is too short. Send the full message text (or type cancel).";
+      }
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(`broadcast buyers ${trimmed}`, senderPhone);
+    }
+    if (pendingAction.actionType === "BROADCAST_ALL") {
+      if (trimmed.length < 2) {
+        return "Broadcast message is too short. Send the full message text (or type cancel).";
+      }
+      clearAdminPendingAction({ senderPhone });
+      return handleAdminCommand(`broadcast all ${trimmed}`, senderPhone);
+    }
+  }
 
   if (lower === "0" || lower === "menu" || lower === "admin menu") {
     return adminCommandMenu();
@@ -1715,12 +1793,26 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     return ["Recent users (latest 15):", ...lines].join("\n");
   }
 
-  if (trimmed === "4") return "Use: force refund <ORDER-ID>";
-  if (trimmed === "5") return "Use: close order <ORDER-ID>";
-  if (trimmed === "6")
-    return "Use: override <ORDER-ID> <payment_status|settlement_status|distribution_status|order_progress_status> <VALUE>";
-  if (trimmed === "8") return "Use: broadcast buyers <message>";
-  if (trimmed === "9") return "Use: broadcast all <message>";
+  if (trimmed === "4") {
+    setAdminPendingAction({ senderPhone, actionType: "RELEASE_ORDER" });
+    return "Release selected. Send ORDER-ID to release funds (or type cancel).";
+  }
+  if (trimmed === "5") {
+    setAdminPendingAction({ senderPhone, actionType: "FORCE_REFUND_ORDER" });
+    return "Force refund selected. Send ORDER-ID to refund (or type cancel).";
+  }
+  if (trimmed === "6") {
+    setAdminPendingAction({ senderPhone, actionType: "CLOSE_ORDER" });
+    return "Close order selected. Send ORDER-ID to force-close (or type cancel).";
+  }
+  if (trimmed === "8") {
+    setAdminPendingAction({ senderPhone, actionType: "BROADCAST_BUYERS" });
+    return "Broadcast buyers selected. Send the message text to send (or type cancel).";
+  }
+  if (trimmed === "9") {
+    setAdminPendingAction({ senderPhone, actionType: "BROADCAST_ALL" });
+    return "Broadcast all selected. Send the message text to send (or type cancel).";
+  }
 
   const releaseMatch = rawMessage.match(/^release\s+([a-zA-Z0-9-]+)/i);
   if (releaseMatch) {
@@ -1760,6 +1852,122 @@ const handleAdminCommand = async (rawMessage, senderPhone) => {
     const targetPhone = normalizeMsisdn(unmuteMatch[1]);
     await clearSenderBlocks({ phoneNumber: targetPhone });
     return `Security block cleared for ${targetPhone}.`;
+  }
+
+  const broadcastBuyersMatch = rawMessage.match(adminBroadcastBuyersPattern);
+  if (broadcastBuyersMatch) {
+    const promoText = String(broadcastBuyersMatch[1] || "").trim();
+    if (!promoText) return "Use: broadcast buyers <message>";
+    const buyers = await query(
+      `
+        SELECT DISTINCT phone_number
+        FROM platform_users
+        WHERE user_type = 'BUYER'
+          AND current_step = 'COMPLETED'
+          AND phone_number IS NOT NULL
+      `
+    );
+    let sentCount = 0;
+    for (const row of buyers.rows) {
+      const ok = await safeNotifyWhatsappPhone({
+        toPhone: row.phone_number,
+        message: `📣 AgizaHub Promo\n${promoText}`,
+      });
+      if (ok) sentCount += 1;
+    }
+    await query(
+      `
+        INSERT INTO promo_broadcasts (
+          created_by_phone,
+          target_role,
+          message_text,
+          status,
+          sent_count,
+          created_at,
+          sent_at
+        )
+        VALUES ($1, 'BUYER', $2, 'SENT', $3, NOW(), NOW())
+      `,
+      [senderPhone, promoText, sentCount]
+    );
+    return `Promo broadcast sent to ${sentCount} buyers.`;
+  }
+
+  const broadcastSellersMatch = rawMessage.match(adminBroadcastSellersPattern);
+  if (broadcastSellersMatch) {
+    const promoText = String(broadcastSellersMatch[1] || "").trim();
+    if (!promoText) return "Use: broadcast sellers <message>";
+    const sellers = await query(
+      `
+        SELECT DISTINCT phone_number
+        FROM platform_users
+        WHERE user_type = 'SUPPLIER'
+          AND current_step = 'COMPLETED'
+          AND phone_number IS NOT NULL
+      `
+    );
+    let sentCount = 0;
+    for (const row of sellers.rows) {
+      const ok = await safeNotifyWhatsappPhone({
+        toPhone: row.phone_number,
+        message: `📣 AgizaHub Seller Notice\n${promoText}`,
+      });
+      if (ok) sentCount += 1;
+    }
+    await query(
+      `
+        INSERT INTO promo_broadcasts (
+          created_by_phone,
+          target_role,
+          message_text,
+          status,
+          sent_count,
+          created_at,
+          sent_at
+        )
+        VALUES ($1, 'SUPPLIER', $2, 'SENT', $3, NOW(), NOW())
+      `,
+      [senderPhone, promoText, sentCount]
+    );
+    return `Broadcast sent to ${sentCount} sellers.`;
+  }
+
+  const broadcastAllMatch = rawMessage.match(adminBroadcastAllPattern);
+  if (broadcastAllMatch) {
+    const promoText = String(broadcastAllMatch[1] || "").trim();
+    if (!promoText) return "Use: broadcast all <message>";
+    const users = await query(
+      `
+        SELECT DISTINCT phone_number
+        FROM platform_users
+        WHERE current_step = 'COMPLETED'
+          AND phone_number IS NOT NULL
+      `
+    );
+    let sentCount = 0;
+    for (const row of users.rows) {
+      const ok = await safeNotifyWhatsappPhone({
+        toPhone: row.phone_number,
+        message: `📣 AgizaHub Notice\n${promoText}`,
+      });
+      if (ok) sentCount += 1;
+    }
+    await query(
+      `
+        INSERT INTO promo_broadcasts (
+          created_by_phone,
+          target_role,
+          message_text,
+          status,
+          sent_count,
+          created_at,
+          sent_at
+        )
+        VALUES ($1, 'ALL', $2, 'SENT', $3, NOW(), NOW())
+      `,
+      [senderPhone, promoText, sentCount]
+    );
+    return `Broadcast sent to ${sentCount} users.`;
   }
 
   const payoutApproveMatch = rawMessage.match(adminPayoutApprovePattern);
@@ -4640,6 +4848,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       const trimmedAdmin = rawMessage.trim();
 
       if (adminTokenRequestPattern.test(trimmedAdmin)) {
+        clearAdminPendingAction({ senderPhone });
         const issued = await issueAdminAccessToken({ adminPhone: senderPhone });
         return respondToUser({
           res,
@@ -4653,6 +4862,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       const plainCodeMatch = trimmedAdmin.match(adminTokenPlainCodePattern);
       const enteredToken = verifyMatch?.[1] || plainCodeMatch?.[1];
       if (enteredToken) {
+        clearAdminPendingAction({ senderPhone });
         const verification = await verifyAdminAccessToken({
           adminPhone: senderPhone,
           token: enteredToken,
@@ -4675,6 +4885,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       }
 
       if (adminLogoutPattern.test(trimmedAdmin)) {
+        clearAdminPendingAction({ senderPhone });
         await revokeAdminSession({ adminPhone: senderPhone });
         return respondToUser({
           res,
@@ -4687,6 +4898,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
       const adminSessionOk =
         !env.admin.requireToken || (await isAdminSessionActive({ adminPhone: senderPhone }));
       if (!adminSessionOk) {
+        clearAdminPendingAction({ senderPhone });
         return respondToUser({
           res,
           provider,
@@ -4695,8 +4907,13 @@ const handleIncomingWhatsapp = async (req, res, next) => {
         });
       }
 
+      if (isExplicitAdminCommand(trimmedAdmin)) {
+        clearAdminPendingAction({ senderPhone });
+      }
+
       const broadcastMatch = rawMessage.match(adminBroadcastBuyersPattern);
       if (broadcastMatch) {
+        clearAdminPendingAction({ senderPhone });
         const promoText = String(broadcastMatch[1] || "").trim();
         if (!promoText) {
           return respondToUser({
@@ -4748,6 +4965,7 @@ const handleIncomingWhatsapp = async (req, res, next) => {
 
       const broadcastAllMatch = rawMessage.match(adminBroadcastAllPattern);
       if (broadcastAllMatch) {
+        clearAdminPendingAction({ senderPhone });
         const promoText = String(broadcastAllMatch[1] || "").trim();
         if (!promoText) {
           return respondToUser({

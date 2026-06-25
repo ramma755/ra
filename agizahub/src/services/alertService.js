@@ -1,6 +1,8 @@
 const logger = require("./logger");
 const env = require("../config/env");
 const { query } = require("../config/db");
+const { sendGatewayReply } = require("./whatsappGatewayService");
+const { normalizeMsisdn } = require("./darajaService");
 
 const sendOpsAlert = async ({ level, message, payload }) => {
   logger.warn("OPS ALERT", { level, message, payload });
@@ -27,6 +29,49 @@ const queueAdminAlert = async ({
     `,
     [templateKey, channel, destination, messageText, JSON.stringify(payload || {})]
   );
+};
+
+const resolveAdminPhones = () => {
+  const configured = Array.isArray(env.admin.whatsappPhones) ? env.admin.whatsappPhones : [];
+  return Array.from(
+    new Set(
+      configured
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .map((value) => normalizeMsisdn(value.replace("whatsapp:+", "")))
+        .filter(Boolean)
+    )
+  );
+};
+
+const pushImmediateWhatsappAdminAlert = async ({ messageText }) => {
+  const phones = resolveAdminPhones();
+  if (phones.length === 0) {
+    logger.warn("ADMIN ALERT SKIPPED: no admin phones configured for immediate push");
+    return;
+  }
+
+  let delivered = 0;
+  for (const phone of phones) {
+    try {
+      await sendGatewayReply({
+        provider: env.whatsappGateway.provider,
+        toPhone: phone,
+        message: messageText,
+      });
+      delivered += 1;
+    } catch (error) {
+      logger.error("ADMIN ALERT DIRECT PUSH FAILED", {
+        phone,
+        error: error.message,
+      });
+    }
+  }
+
+  logger.info("ADMIN ALERT DIRECT PUSH RESULT", {
+    delivered,
+    attempted: phones.length,
+  });
 };
 
 const buildTransporterTimeoutAlert = ({
@@ -91,6 +136,11 @@ const sendTransporterTimeoutAlert = async (event) => {
     messageText: alert.messageText,
     payload: alert.payload,
   });
+  if (String(channel || "").toUpperCase() === "WHATSAPP") {
+    await pushImmediateWhatsappAdminAlert({
+      messageText: alert.messageText,
+    });
+  }
 
   logger.warn("ADMIN TRANSPORT ALERT QUEUED", {
     channel,
@@ -127,6 +177,11 @@ const sendDisputeEscalationAlert = async ({
     messageText,
     payload: payload || { orderId, issueType, reporterPhone, note },
   });
+  if (String(channel || "").toUpperCase() === "WHATSAPP") {
+    await pushImmediateWhatsappAdminAlert({
+      messageText,
+    });
+  }
 };
 
 module.exports = {

@@ -400,7 +400,13 @@ Expected outcome:
   - `deliver <order_id> <AGZ-XXXXXX>`
 - Admin:
   - `admin token` -> verify with `verify <code>` or just `<code>`
-  - numeric panel shortcuts: `1` stats, `2` pending orders, `3` recent users, `7` revenue, `10` logout
+  - numeric panel guided shortcuts:
+    - `4` release order -> then send `ORDER-ID`
+    - `5` force refund -> then send `ORDER-ID`
+    - `6` close order -> then send `ORDER-ID`
+    - `8` broadcast buyers -> then send message text
+    - `9` broadcast all -> then send message text
+    - `1` stats, `2` pending orders, `3` recent users, `7` revenue, `10` logout
   - `release <order_id>`, `hold <order_id>`, `approve <order_id>`, `reject <order_id>`
   - `payout approve <request_id>`
   - `broadcast buyers <message>`, `broadcast all <message>`
