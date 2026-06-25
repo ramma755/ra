@@ -623,65 +623,26 @@ const elapsedMinutesSince = (value) => {
   return (Date.now() - ts) / (1000 * 60);
 };
 
-const isMissingColumnError = (error, columnName) => {
-  const message = String(error?.message || "");
-  return message.includes(`column "${columnName}"`) && message.includes("does not exist");
-};
-
 const safeTouchLastInboundMessage = async ({ userId }) => {
-  try {
-    await query(
-      `
-        UPDATE platform_users
-        SET last_inbound_message_at = NOW(),
-            updated_at = NOW()
-        WHERE id = $1
-      `,
-      [userId]
-    );
-  } catch (error) {
-    if (isMissingColumnError(error, "last_inbound_message_at")) {
-      logger.warn("Re-engagement columns missing; skipping last_inbound_message_at touch");
-      await query(
-        `
-          UPDATE platform_users
-          SET updated_at = NOW()
-          WHERE id = $1
-        `,
-        [userId]
-      );
-      return;
-    }
-    throw error;
-  }
+  await query(
+    `
+      UPDATE platform_users
+      SET updated_at = NOW()
+      WHERE id = $1
+    `,
+    [userId]
+  );
 };
 
 const safeTouchReengagementPrompt = async ({ userId }) => {
-  try {
-    await query(
-      `
-        UPDATE platform_users
-        SET last_reengagement_prompt_at = NOW(),
-            updated_at = NOW()
-        WHERE id = $1
-      `,
-      [userId]
-    );
-  } catch (error) {
-    if (isMissingColumnError(error, "last_reengagement_prompt_at")) {
-      logger.warn("Re-engagement columns missing; skipping last_reengagement_prompt_at touch");
-      await query(
-        `
-          UPDATE platform_users
-          SET updated_at = NOW()
-          WHERE id = $1
-        `,
-        [userId]
-      );
-      return;
-    }
-    throw error;
-  }
+  await query(
+    `
+      UPDATE platform_users
+      SET updated_at = NOW()
+      WHERE id = $1
+    `,
+    [userId]
+  );
 };
 
 const parseSupplierBusinessTypeChoice = (choice) => {
