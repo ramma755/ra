@@ -1,20 +1,19 @@
 """
 EGM Securities Trading Bot — Configuration
 All tuneable parameters live here. Edit this file before starting the bot.
+
+HOW TO SWITCH BETWEEN LIVE AND DEMO
+─────────────────────────────────────
+Do NOT touch this file.
+Just open MetaTrader 5, log in to whichever account you want (live or demo),
+and then start the bot. The bot automatically connects to whatever account
+MT5 is already logged in to.
 """
 
 # ─── MT5 Connection ────────────────────────────────────────────────────────────
-# Account holder: David Muiruri
-#
-# ── LIVE account (comment out when testing) ───────────────────────────────────
-MT5_LOGIN    = 9370256
-MT5_PASSWORD = "Peter@2543888"
-MT5_SERVER   = "EGMSecurities-Live"
-#
-# ── DEMO account (uncomment these three lines to switch to demo) ──────────────
-# MT5_LOGIN    = 1171097
-# MT5_PASSWORD = "Peter@2543888"
-# MT5_SERVER   = "EGMSecurities-Demo"
+# No credentials needed here.
+# The bot attaches to the MT5 terminal that is already running and logged in.
+# Switch accounts inside MT5 — the bot follows automatically.
 
 # ─── Trading Universe ──────────────────────────────────────────────────────────
 # List every symbol you want the bot to trade simultaneously.

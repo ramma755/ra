@@ -108,7 +108,7 @@ def scan_all():
 def main():
     log.info("=" * 60)
     log.info("EGM Securities Trading Bot starting up")
-    log.info("Account : %s @ %s", config.MT5_LOGIN, config.MT5_SERVER)
+    log.info("Account : auto-detected from running MT5 terminal")
     log.info("Symbols : %s", ", ".join(config.SYMBOLS))
     log.info("TF      : %s | Fast/Slow EMA: %d/%d | RSI: %d",
              config.TIMEFRAME,

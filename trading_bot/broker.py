@@ -25,23 +25,28 @@ log = logging.getLogger("EGMBot")
 # ─── Connection ────────────────────────────────────────────────────────────────
 
 def connect() -> bool:
-    """Initialise the MT5 terminal and log in. Returns True on success."""
-    if not mt5.initialize(
-        login=config.MT5_LOGIN,
-        password=config.MT5_PASSWORD,
-        server=config.MT5_SERVER,
-    ):
-        log.error("MT5 initialize() failed: %s", mt5.last_error())
+    """
+    Attach to the already-running MT5 terminal.
+    No credentials are needed — the bot uses whichever account MT5 is
+    currently logged in to. Switch accounts inside MT5 itself.
+    """
+    if not mt5.initialize():
+        log.error(
+            "Could not connect to MetaTrader 5.\n"
+            "  → Make sure MT5 is open and you are logged in before starting the bot.\n"
+            "  → Error: %s", mt5.last_error()
+        )
         return False
 
     info = mt5.account_info()
     if info is None:
-        log.error("Could not retrieve account info: %s", mt5.last_error())
+        log.error("Could not read account info from MT5: %s", mt5.last_error())
         return False
 
+    account_type = "DEMO" if info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "LIVE"
     log.info(
-        "Connected | Account: %s | Name: %s | Balance: %.2f %s",
-        info.login, info.name, info.balance, info.currency,
+        "Connected to MT5 | [%s] Account: %s | Name: %s | Balance: %.2f %s",
+        account_type, info.login, info.name, info.balance, info.currency,
     )
     return True
 

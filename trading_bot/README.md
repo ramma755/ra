@@ -39,17 +39,18 @@ repeats every `POLL_INTERVAL_SECONDS` seconds.
 pip install -r requirements.txt
 ```
 
-### 2. Edit `config.py`
+### 2. No credentials needed — just log in to MT5
 
-Open `config.py` and fill in your credentials:
+**The bot connects automatically to whichever account MetaTrader 5 is already
+logged in to.** There is nothing to edit.
 
-```python
-MT5_LOGIN    = 1234567          # your EGM Securities account number
-MT5_PASSWORD = "YourPassword"   # MT5 password
-MT5_SERVER   = "EGMSecurities-Live"   # or "EGMSecurities-Demo"
-```
+- Want to trade **live**? Log in to your live account in MT5, then start the bot.
+- Want to test on **demo**? Log in to your demo account in MT5, then start the bot.
 
-Customise the symbols, timeframe, and risk settings to your liking.
+You never need to touch any file to switch. Just change accounts inside MT5.
+
+You can still customise symbols, timeframe, and risk settings in `config.py` if
+you want to adjust trading behaviour.
 
 ### 3. Start the bot
 
@@ -74,9 +75,6 @@ Press **Ctrl-C** to stop gracefully.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `MT5_LOGIN` | `0` | EGM Securities account number |
-| `MT5_PASSWORD` | `""` | MT5 account password |
-| `MT5_SERVER` | `EGMSecurities-Live` | MT5 server name |
 | `SYMBOLS` | EURUSD, GBPUSD, USDJPY, XAUUSD | Symbols to trade |
 | `TIMEFRAME` | `M15` | Chart timeframe |
 | `FAST_MA_PERIOD` | `9` | Fast EMA period |
