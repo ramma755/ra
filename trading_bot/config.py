@@ -11,11 +11,93 @@ The bot connects to whatever account MT5 is already logged in to automatically.
 # No credentials needed. Bot attaches to the running MT5 terminal automatically.
 
 # ─── Trading Universe ───────────────────────────────────────────────────────────
+# All symbols visible in the EGMSecurities Market Watch.
+# More markets = more signals per hour = more trading opportunities.
 SYMBOLS = [
+    # ── Forex Majors ──────────────────────────────────────────────
     "EURUSD",
     "GBPUSD",
     "USDJPY",
+    "USDCHF",
+    "USDCAD",
+    "AUDUSD",
+    "NZDUSD",
+
+    # ── Forex Crosses — EUR ───────────────────────────────────────
+    "EURGBP",
+    "EURJPY",
+    "EURCHF",
+    "EURAUD",
+    "EURCAD",
+    "EURNZD",
+    "EURNOK",
+    "EURSEK",
+    "EURSGD",
+    "EURZAR",
+    "EURMXN",
+    "EURPLN",
+
+    # ── Forex Crosses — GBP ───────────────────────────────────────
+    "GBPJPY",
+    "GBPCHF",
+    "GBPAUD",
+    "GBPCAD",
+    "GBPNZD",
+    "GBPNOK",
+    "GBPSEK",
+    "GBPSGD",
+    "GBPZAR",
+
+    # ── Forex Crosses — AUD ───────────────────────────────────────
+    "AUDJPY",
+    "AUDCAD",
+    "AUDCHF",
+    "AUDNZD",
+    "AUDSGD",
+
+    # ── Forex Crosses — CAD ───────────────────────────────────────
+    "CADJPY",
+    "CADCHF",
+    "CADSGD",
+
+    # ── Forex Crosses — Other ─────────────────────────────────────
+    "CHFJPY",
+    "NZDCAD",
+    "NOKSEK",
+    "NOKJPY",
+    "SEKJPY",
+    "SGDJPY",
+    "MXNJPY",
+
+    # ── USD Exotics ───────────────────────────────────────────────
+    "USDMXN",
+    "USDNOK",
+    "USDAED",
+    "USDCNH",
+    "USDHKD",
+
+    # ── Commodities ───────────────────────────────────────────────
     "XAUUSD",       # Gold
+    "USOILRoll",    # US Oil (WTI)
+    "UKOILRoll",    # UK Oil (Brent)
+
+    # ── Stock Indices ─────────────────────────────────────────────
+    "US500Roll",    # S&P 500
+    "US30Roll",     # Dow Jones
+    "UT100Roll",    # Nasdaq 100
+    "UK100Roll",    # FTSE 100
+    "DE40Roll",     # DAX 40
+
+    # ── Stocks ────────────────────────────────────────────────────
+    "NVIDIA",
+    "Apple",
+    "Tesla",
+    "AMD",
+    "Facebook",
+    "Microsoft",
+    "Netflix",
+
+    # ── Crypto ────────────────────────────────────────────────────
     "ETHUSD.lv",    # Ethereum leverage
     "LTCUSD.lv",    # Litecoin leverage
 ]
