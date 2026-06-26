@@ -127,7 +127,8 @@ def scan_symbol(symbol: str):
 # ─── Full scan ─────────────────────────────────────────────────────────────────
 
 def scan_all():
-    log.info("━━━ Scanning %d symbol(s) | H4+H1+M15 | 7 gates ━━━", len(config.SYMBOLS))
+    log.info("━━━ Scanning %d symbol(s) | %s entry | 5 gates ━━━",
+             len(config.SYMBOLS), config.ENTRY_TF)
     for sym in config.SYMBOLS:
         try:
             scan_symbol(sym)
@@ -139,16 +140,18 @@ def scan_all():
 
 def main():
     log.info("=" * 65)
-    log.info("  EGM Securities Trading Bot — High-Accuracy Edition")
+    log.info("  EGM Securities Trading Bot — Scalping Edition")
     log.info("  Account   : auto-detected from running MT5 terminal")
     log.info("  Symbols   : %s", ", ".join(config.SYMBOLS))
-    log.info("  Timeframes: %s (entry) | %s (trend) | %s (macro)",
+    log.info("  Timeframes: %s entry | %s trend | %s macro",
              config.ENTRY_TF, config.TREND_TF, config.MACRO_TF)
-    log.info("  Risk      : %.1f%% per trade | R:R = 1:%.1f",
-             config.RISK_PERCENT, config.REWARD_RATIO)
-    log.info("  Gates     : H4 trend | H1 trend | ADX≥%d | EMA cross | MACD | Stoch+RSI | Pullback+Body",
-             config.ADX_MIN)
-    log.info("  Session   : %02d:00–%02d:00 UTC | Spread max: %d pts",
+    log.info("  EMA       : %d / %d  |  RSI: %d  |  MACD: %d/%d/%d",
+             config.FAST_MA_PERIOD, config.SLOW_MA_PERIOD, config.RSI_PERIOD,
+             config.MACD_FAST, config.MACD_SLOW, config.MACD_SIGNAL)
+    log.info("  Risk      : %.1f%% per trade | R:R 1:%.1f | SL=%.1f×ATR",
+             config.RISK_PERCENT, config.REWARD_RATIO, config.ATR_MULTIPLIER)
+    log.info("  Scan rate : every %ds | Session: %02d:00–%02d:00 UTC | Spread max: %d pts",
+             config.POLL_INTERVAL_SECONDS,
              config.SESSION_START_UTC, config.SESSION_END_UTC, config.MAX_SPREAD_POINTS)
     log.info("  Protection: Break-even at %.1fR | Trail from %.1fR",
              config.BREAKEVEN_R, config.TRAIL_START_R)

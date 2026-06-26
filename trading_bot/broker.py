@@ -124,7 +124,7 @@ def get_trend_bars(symbol: str, count: int = 60):
 
 def get_macro_bars(symbol: str, count: int = 60):
     """
-    Returns (closes, highs, lows) for the H4 MACRO timeframe, or None.
+    Returns (closes, highs, lows) for the MACRO timeframe (M15 in scalping, H4 in swing).
     """
     rates = _fetch_rates(symbol, config.MACRO_TF, count)
     if rates is None:

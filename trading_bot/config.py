@@ -1,11 +1,10 @@
 """
-EGM Securities Trading Bot — High-Accuracy Configuration
+EGM Securities Trading Bot — Scalping Configuration
 
 HOW TO SWITCH BETWEEN LIVE AND DEMO
 ─────────────────────────────────────
-Do NOT touch this file for that.
 Open MetaTrader 5, log in to the account you want, then start the bot.
-The bot connects to whatever account MT5 is already logged in to.
+The bot connects to whatever account MT5 is already logged in to automatically.
 """
 
 # ─── MT5 Connection ─────────────────────────────────────────────────────────────
@@ -22,81 +21,65 @@ SYMBOLS = [
 ]
 
 # ─── Timeframes ─────────────────────────────────────────────────────────────────
-# Three-timeframe system:
-#   H4  = macro trend  (which direction is the market heading overall?)
-#   H1  = structure    (is the intermediate move supporting the trade?)
-#   M15 = entry timing (exactly when do we get in?)
-#
-# All three must agree for a trade to be placed.
-ENTRY_TF = "M15"   # where crossover signal is detected
-TREND_TF  = "H1"   # intermediate trend confirmation
-MACRO_TF  = "H4"   # macro (big-picture) trend filter
+# Scalping setup:
+#   M5  = entry signals  (fires every few minutes)
+#   M15 = trend filter   (intermediate direction)
+# Both must agree before any trade is placed.
+ENTRY_TF = "M5"
+TREND_TF = "M15"
+MACRO_TF = "H1"    # big-picture safety net
 
 # ─── EMA Settings ───────────────────────────────────────────────────────────────
-FAST_MA_PERIOD = 9
+# Faster periods = more signals on M5
+FAST_MA_PERIOD = 8
 SLOW_MA_PERIOD = 21
 
 # ─── RSI ────────────────────────────────────────────────────────────────────────
-RSI_PERIOD     = 14
-RSI_OVERBOUGHT = 55   # Very tight — only buy when RSI has real room to run up
-RSI_OVERSOLD   = 45   # Very tight — only sell when RSI has real room to run down
+RSI_PERIOD     = 7     # fast RSI reacts quickly on M5
+RSI_OVERBOUGHT = 65
+RSI_OVERSOLD   = 35
 
 # ─── MACD ───────────────────────────────────────────────────────────────────────
-MACD_FAST   = 12
-MACD_SLOW   = 26
-MACD_SIGNAL = 9
-# MACD line must also be on the correct side of zero (not just histogram)
-# BUY:  MACD line > 0
-# SELL: MACD line < 0
+MACD_FAST   = 8
+MACD_SLOW   = 21
+MACD_SIGNAL = 5    # faster signal line for scalping
 
-# ─── ADX (Trend Strength) ────────────────────────────────────────────────────────
-# ADX measures how strong the trend is, regardless of direction.
-# < 20  = choppy, sideways market — bot will NOT trade
-# 20–25 = developing trend — borderline
-# > 25  = strong trend — bot WILL trade
-# > 40  = very strong trend (best setups)
-ADX_PERIOD    = 14
-ADX_MIN       = 25    # minimum ADX to allow entry
+# ─── ADX (Trend Strength) ───────────────────────────────────────────────────────
+ADX_PERIOD = 14
+ADX_MIN    = 20    # lower than swing trading — scalping works in lighter trends too
 
 # ─── Stochastic ─────────────────────────────────────────────────────────────────
-STOCH_K_PERIOD = 14
+STOCH_K_PERIOD = 5    # very fast stochastic for scalping
 STOCH_D_PERIOD = 3
-# For BUY:  %K must be below 60 (not overbought) and rising
-# For SELL: %K must be above 40 (not oversold) and falling
 
-# ─── Candle Body Strength ────────────────────────────────────────────────────────
-# The signal candle's body must be at least this fraction of the total candle range.
-# 0.60 = body must be 60% of the high-low range (strong directional candle, no wicks).
-MIN_BODY_RATIO = 0.60
+# ─── Candle Body Strength ───────────────────────────────────────────────────────
+MIN_BODY_RATIO = 0.50   # 50% body — slightly relaxed for faster signals
 
 # ─── Pullback Entry ─────────────────────────────────────────────────────────────
-# After an EMA crossover, the bot does NOT enter immediately.
-# It waits for price to pull back close to the EMA (better price, tighter stop).
-# Entry is only valid if price is within PULLBACK_ATR_MULT × ATR of the slow EMA.
-# This is the single biggest accuracy booster — you enter at value, not at extension.
-PULLBACK_ATR_MULT = 0.5   # price must be within 0.5 × ATR of the slow EMA
+# Price must be within this many ATRs of the slow EMA before entering.
+PULLBACK_ATR_MULT = 0.8   # wider window to allow more entries on M5
 
 # ─── Session Filter ─────────────────────────────────────────────────────────────
-SESSION_START_UTC  = 7    # London open
-SESSION_END_UTC    = 21   # NY close
-TRADE_ON_WEEKENDS  = False
+SESSION_START_UTC = 7
+SESSION_END_UTC   = 21
+TRADE_ON_WEEKENDS = False
 
 # ─── Spread Filter ──────────────────────────────────────────────────────────────
-MAX_SPREAD_POINTS = 25    # Skip if spread > 2.5 pips (5-digit broker)
+MAX_SPREAD_POINTS = 30
 
 # ─── Risk Management ────────────────────────────────────────────────────────────
-RISK_PERCENT   = 1.0      # % of account balance risked per trade
-REWARD_RATIO   = 2.0      # TP = SL × this  (1:2 R:R)
+RISK_PERCENT   = 1.0
+REWARD_RATIO   = 1.5      # 1:1.5 R:R — smaller TP that gets hit quickly
 ATR_PERIOD     = 14
-ATR_MULTIPLIER = 1.5      # SL = ATR × this
+ATR_MULTIPLIER = 1.0      # tighter SL on scalping (1×ATR instead of 1.5×)
 
-MAX_OPEN_TRADES       = 5
+MAX_OPEN_TRADES       = 6   # allow more simultaneous trades for scalping
 MAX_TRADES_PER_SYMBOL = 1
 
-# ─── Trade Management ────────────────────────────────────────────────────────────
-BREAKEVEN_R      = 1.0    # Move SL to entry after 1× risk in profit
-TRAIL_START_R    = 1.5    # Start trailing after 1.5× risk in profit
-TRAIL_STEP_ATR   = 1.0    # Trail distance = 1 × ATR
+# ─── Trade Management ───────────────────────────────────────────────────────────
+BREAKEVEN_R    = 0.8   # move to break-even sooner (protects quick scalp gains)
+TRAIL_START_R  = 1.0   # start trailing at 1R
+TRAIL_STEP_ATR = 0.5   # tighter trail on scalps
 
 # ─── Execution ──────────────────────────────────────────────────────────────────
 MAGIC_NUMBER = 20260626
@@ -104,7 +87,8 @@ SLIPPAGE     = 10
 COMMENT      = "EGMBot"
 
 # ─── Bot Loop ───────────────────────────────────────────────────────────────────
-POLL_INTERVAL_SECONDS = 60
+# Scan every 15 seconds — catches signals within seconds of them forming on M5
+POLL_INTERVAL_SECONDS = 15
 
 # ─── Logging ────────────────────────────────────────────────────────────────────
 LOG_FILE  = "trading_bot.log"
