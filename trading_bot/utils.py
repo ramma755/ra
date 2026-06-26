@@ -134,55 +134,58 @@ def atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) ->
 
 def adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
     """
-    Average Directional Index.
-    > 25  = strong trending market (good to trade)
-    < 20  = choppy/ranging market  (avoid)
+    Average Directional Index — always returns a value between 0 and 100.
+    > 25 = strong trend (trade)
+    < 20 = choppy/ranging (skip)
     """
-    if len(closes) < period * 2:
+    n = len(closes)
+    if n < period * 2 + 1:
         return 0.0
 
-    n = len(closes)
-    tr_arr  = np.zeros(n - 1)
-    dm_plus = np.zeros(n - 1)
-    dm_minus= np.zeros(n - 1)
+    tr_arr   = np.zeros(n - 1)
+    dm_plus  = np.zeros(n - 1)
+    dm_minus = np.zeros(n - 1)
 
     for i in range(1, n):
-        high_diff = highs[i] - highs[i - 1]
-        low_diff  = lows[i - 1] - lows[i]
+        up   = highs[i] - highs[i - 1]
+        down = lows[i - 1] - lows[i]
         tr_arr[i - 1] = max(
             highs[i] - lows[i],
             abs(highs[i] - closes[i - 1]),
             abs(lows[i]  - closes[i - 1]),
         )
-        dm_plus[i - 1]  = high_diff if high_diff > low_diff  and high_diff > 0 else 0.0
-        dm_minus[i - 1] = low_diff  if low_diff  > high_diff and low_diff  > 0 else 0.0
+        dm_plus[i - 1]  = up   if up > down and up > 0   else 0.0
+        dm_minus[i - 1] = down if down > up and down > 0 else 0.0
 
-    # Wilder smoothing
-    def wilder(arr, p):
+    # Wilder smoothing — sum-based (used for TR, DM+, DM-)
+    def wilder_sum(arr, p):
         out = np.zeros(len(arr))
         out[p - 1] = np.sum(arr[:p])
         for i in range(p, len(arr)):
             out[i] = out[i - 1] - out[i - 1] / p + arr[i]
         return out
 
-    atr_w  = wilder(tr_arr,   period)
-    dmp_w  = wilder(dm_plus,  period)
-    dmm_w  = wilder(dm_minus, period)
+    atr_w = wilder_sum(tr_arr,   period)
+    dmp_w = wilder_sum(dm_plus,  period)
+    dmm_w = wilder_sum(dm_minus, period)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        di_plus  = np.where(atr_w != 0, 100 * dmp_w / atr_w, 0.0)
-        di_minus = np.where(atr_w != 0, 100 * dmm_w / atr_w, 0.0)
-        dx = np.where(
-            (di_plus + di_minus) != 0,
-            100 * np.abs(di_plus - di_minus) / (di_plus + di_minus),
-            0.0,
-        )
+        di_plus  = np.where(atr_w != 0, 100.0 * dmp_w / atr_w, 0.0)
+        di_minus = np.where(atr_w != 0, 100.0 * dmm_w / atr_w, 0.0)
+        denom = di_plus + di_minus
+        dx    = np.where(denom != 0, 100.0 * np.abs(di_plus - di_minus) / denom, 0.0)
 
-    # ADX = Wilder-smoothed DX
-    adx_arr = wilder(dx[period - 1:], period)
-    if len(adx_arr) == 0 or adx_arr[-1] == 0:
+    # ADX = average-based smoothing of DX values (NOT sum-based)
+    # Initial ADX = simple average of first `period` DX values
+    dx_valid = dx[period - 1:]          # first valid DX starts at index period-1
+    if len(dx_valid) < period:
         return 0.0
-    return float(adx_arr[-1])
+
+    adx_val = float(np.mean(dx_valid[:period]))
+    for i in range(period, len(dx_valid)):
+        adx_val = (adx_val * (period - 1) + dx_valid[i]) / period
+
+    return min(100.0, max(0.0, adx_val))
 
 
 # ─── Stochastic ────────────────────────────────────────────────────────────────

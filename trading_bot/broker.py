@@ -59,16 +59,18 @@ def disconnect():
 # ─── Spread Guard ──────────────────────────────────────────────────────────────
 
 def spread_ok(symbol: str) -> bool:
-    """Returns True if the current spread is within the allowed maximum."""
+    """
+    Returns True if the current spread is within the allowed maximum.
+    Uses a percentage check so it works for forex, stocks, indices, and crypto.
+    """
     tick = mt5.symbol_info_tick(symbol)
-    info = mt5.symbol_info(symbol)
-    if tick is None or info is None:
+    if tick is None or tick.bid == 0:
         return False
-    spread_points = (tick.ask - tick.bid) / info.point
-    if spread_points > config.MAX_SPREAD_POINTS:
+    spread_pct = (tick.ask - tick.bid) / tick.bid * 100
+    if spread_pct > config.MAX_SPREAD_PCT:
         log.info(
-            "%s | SPREAD TOO WIDE: %.1f pts (max %d) — skipping entry",
-            symbol, spread_points, config.MAX_SPREAD_POINTS,
+            "%s | SPREAD TOO WIDE: %.3f%% (max %.2f%%) — skipping",
+            symbol, spread_pct, config.MAX_SPREAD_PCT,
         )
         return False
     return True

@@ -151,7 +151,12 @@ SESSION_END_UTC   = 24
 TRADE_ON_WEEKENDS = True
 
 # ─── Spread Filter ──────────────────────────────────────────────────────────────
-MAX_SPREAD_POINTS = 30
+# Percentage-based spread check — works for ALL instrument types.
+# spread % = (ask - bid) / bid × 100
+# Forex majors normal spread: ~0.01–0.03%
+# Stocks / indices normal spread: ~0.02–0.08%
+# Skip entry if spread exceeds this threshold.
+MAX_SPREAD_PCT = 0.10   # 0.10% — catches genuinely wide spreads on any instrument
 
 # ─── Risk Management ────────────────────────────────────────────────────────────
 RISK_PERCENT   = 1.0
