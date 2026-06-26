@@ -4,10 +4,17 @@ All tuneable parameters live here. Edit this file before starting the bot.
 """
 
 # ─── MT5 Connection ────────────────────────────────────────────────────────────
-MT5_LOGIN    = 0          # Replace with your EGM Securities MT5 account number
-MT5_PASSWORD = ""         # Replace with your MT5 password
-MT5_SERVER   = "EGMSecurities-Live"  # Server name shown in the MT5 login screen
-                                      # (use "EGMSecurities-Demo" for demo accounts)
+# Account holder: David Muiruri
+#
+# ── LIVE account (comment out when testing) ───────────────────────────────────
+MT5_LOGIN    = 9370256
+MT5_PASSWORD = "Peter@2543888"
+MT5_SERVER   = "EGMSecurities-Live"
+#
+# ── DEMO account (uncomment these three lines to switch to demo) ──────────────
+# MT5_LOGIN    = 1171097
+# MT5_PASSWORD = "Peter@2543888"
+# MT5_SERVER   = "EGMSecurities-Demo"
 
 # ─── Trading Universe ──────────────────────────────────────────────────────────
 # List every symbol you want the bot to trade simultaneously.
