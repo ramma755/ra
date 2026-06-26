@@ -110,10 +110,23 @@ def get_bars(symbol: str, count: int = 120):
 
 def get_trend_bars(symbol: str, count: int = 60):
     """
-    Returns (closes, highs, lows) for the TREND (higher) timeframe,
-    or None on failure.
+    Returns (closes, highs, lows) for the H1 TREND timeframe, or None.
     """
     rates = _fetch_rates(symbol, config.TREND_TF, count)
+    if rates is None:
+        return None
+    return (
+        rates["close"].astype(np.float64),
+        rates["high"].astype(np.float64),
+        rates["low"].astype(np.float64),
+    )
+
+
+def get_macro_bars(symbol: str, count: int = 60):
+    """
+    Returns (closes, highs, lows) for the H4 MACRO timeframe, or None.
+    """
+    rates = _fetch_rates(symbol, config.MACRO_TF, count)
     if rates is None:
         return None
     return (

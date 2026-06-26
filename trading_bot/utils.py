@@ -1,6 +1,6 @@
 """
-Utility helpers — logging setup, MT5 timeframe mapping, indicator maths,
-session filter, spread check.
+Utility helpers — logging, MT5 timeframe mapping, all technical indicators,
+session filter.
 """
 
 import logging
@@ -61,27 +61,17 @@ def setup_logger() -> logging.Logger:
 # ─── Session Filter ────────────────────────────────────────────────────────────
 
 def is_trading_session() -> bool:
-    """
-    Returns True if the current UTC time falls within the configured trading
-    window AND it is not a weekend (unless TRADE_ON_WEEKENDS is True).
-    """
+    """True if current UTC time is within the active trading window."""
     now = datetime.now(timezone.utc)
-    weekday = now.weekday()  # 0=Monday … 6=Sunday
-
-    if not config.TRADE_ON_WEEKENDS:
-        # Saturday=5, Sunday=6 — skip new entries
-        if weekday >= 5:
-            return False
-
-    hour = now.hour
-    return config.SESSION_START_UTC <= hour < config.SESSION_END_UTC
+    if not config.TRADE_ON_WEEKENDS and now.weekday() >= 5:
+        return False
+    return config.SESSION_START_UTC <= now.hour < config.SESSION_END_UTC
 
 
-# ─── Technical Indicators ──────────────────────────────────────────────────────
+# ─── EMA ───────────────────────────────────────────────────────────────────────
 
 def ema(values: np.ndarray, period: int) -> np.ndarray:
-    """Exponential Moving Average."""
-    result = np.empty_like(values, dtype=np.float64)
+    result = np.empty(len(values), dtype=np.float64)
     k = 2.0 / (period + 1)
     result[0] = values[0]
     for i in range(1, len(values)):
@@ -89,25 +79,25 @@ def ema(values: np.ndarray, period: int) -> np.ndarray:
     return result
 
 
+# ─── RSI ───────────────────────────────────────────────────────────────────────
+
 def rsi(closes: np.ndarray, period: int) -> float:
-    """Most-recent RSI value."""
     if len(closes) < period + 1:
         return 50.0
     deltas = np.diff(closes)
     gains  = np.where(deltas > 0, deltas, 0.0)
     losses = np.where(deltas < 0, -deltas, 0.0)
-
     avg_gain = np.mean(gains[:period])
     avg_loss = np.mean(losses[:period])
-
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-
     if avg_loss == 0:
         return 100.0
     return 100.0 - (100.0 / (1.0 + avg_gain / avg_loss))
 
+
+# ─── MACD ──────────────────────────────────────────────────────────────────────
 
 def macd(
     closes: np.ndarray,
@@ -115,33 +105,114 @@ def macd(
     slow: int,
     signal_period: int,
 ) -> tuple[float, float, float]:
-    """
-    Returns (macd_line, signal_line, histogram) for the most-recent bar.
-    macd_line > 0 and histogram > 0  → bullish momentum
-    macd_line < 0 and histogram < 0  → bearish momentum
-    """
+    """Returns (macd_line, signal_line, histogram)."""
     if len(closes) < slow + signal_period:
         return 0.0, 0.0, 0.0
-    fast_ema   = ema(closes, fast)
-    slow_ema   = ema(closes, slow)
-    macd_line  = fast_ema - slow_ema
-    signal_arr = ema(macd_line, signal_period)
-    hist       = macd_line[-1] - signal_arr[-1]
-    return float(macd_line[-1]), float(signal_arr[-1]), float(hist)
+    fast_ema  = ema(closes, fast)
+    slow_ema  = ema(closes, slow)
+    macd_line = fast_ema - slow_ema
+    sig_arr   = ema(macd_line, signal_period)
+    return float(macd_line[-1]), float(sig_arr[-1]), float(macd_line[-1] - sig_arr[-1])
 
+
+# ─── ATR ───────────────────────────────────────────────────────────────────────
 
 def atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """Most-recent ATR value."""
     if len(closes) < period + 1:
         return float(highs[-1] - lows[-1])
     tr = np.maximum(
         highs[1:] - lows[1:],
-        np.maximum(
-            np.abs(highs[1:] - closes[:-1]),
-            np.abs(lows[1:]  - closes[:-1]),
-        ),
+        np.maximum(np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1])),
     )
-    atr_val = np.mean(tr[:period])
+    val = np.mean(tr[:period])
     for i in range(period, len(tr)):
-        atr_val = (atr_val * (period - 1) + tr[i]) / period
-    return float(atr_val)
+        val = (val * (period - 1) + tr[i]) / period
+    return float(val)
+
+
+# ─── ADX ───────────────────────────────────────────────────────────────────────
+
+def adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
+    """
+    Average Directional Index.
+    > 25  = strong trending market (good to trade)
+    < 20  = choppy/ranging market  (avoid)
+    """
+    if len(closes) < period * 2:
+        return 0.0
+
+    n = len(closes)
+    tr_arr  = np.zeros(n - 1)
+    dm_plus = np.zeros(n - 1)
+    dm_minus= np.zeros(n - 1)
+
+    for i in range(1, n):
+        high_diff = highs[i] - highs[i - 1]
+        low_diff  = lows[i - 1] - lows[i]
+        tr_arr[i - 1] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i]  - closes[i - 1]),
+        )
+        dm_plus[i - 1]  = high_diff if high_diff > low_diff  and high_diff > 0 else 0.0
+        dm_minus[i - 1] = low_diff  if low_diff  > high_diff and low_diff  > 0 else 0.0
+
+    # Wilder smoothing
+    def wilder(arr, p):
+        out = np.zeros(len(arr))
+        out[p - 1] = np.sum(arr[:p])
+        for i in range(p, len(arr)):
+            out[i] = out[i - 1] - out[i - 1] / p + arr[i]
+        return out
+
+    atr_w  = wilder(tr_arr,   period)
+    dmp_w  = wilder(dm_plus,  period)
+    dmm_w  = wilder(dm_minus, period)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        di_plus  = np.where(atr_w != 0, 100 * dmp_w / atr_w, 0.0)
+        di_minus = np.where(atr_w != 0, 100 * dmm_w / atr_w, 0.0)
+        dx = np.where(
+            (di_plus + di_minus) != 0,
+            100 * np.abs(di_plus - di_minus) / (di_plus + di_minus),
+            0.0,
+        )
+
+    # ADX = Wilder-smoothed DX
+    adx_arr = wilder(dx[period - 1:], period)
+    if len(adx_arr) == 0 or adx_arr[-1] == 0:
+        return 0.0
+    return float(adx_arr[-1])
+
+
+# ─── Stochastic ────────────────────────────────────────────────────────────────
+
+def stochastic(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    k_period: int,
+    d_period: int,
+) -> tuple[float, float]:
+    """
+    Returns (%K, %D) for the most-recent bar.
+    %K < 20 = oversold, %K > 80 = overbought.
+    For a BUY: %K should be rising from oversold (< 50, trending up)
+    For a SELL: %K should be falling from overbought (> 50, trending down)
+    """
+    if len(closes) < k_period + d_period:
+        return 50.0, 50.0
+
+    k_values = []
+    for i in range(d_period):
+        idx = len(closes) - d_period + i
+        window_h = highs[max(0, idx - k_period + 1): idx + 1]
+        window_l = lows[max(0, idx - k_period + 1): idx + 1]
+        hh = np.max(window_h)
+        ll = np.min(window_l)
+        k = 100.0 * (closes[idx] - ll) / (hh - ll) if hh != ll else 50.0
+        k_values.append(k)
+
+    k_now = k_values[-1]
+    d_now = float(np.mean(k_values))
+    return float(k_now), d_now
