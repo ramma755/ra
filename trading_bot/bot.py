@@ -44,13 +44,13 @@ def scan_symbol(symbol: str):
 
     # ── Guard: too many total open positions
     if broker.open_position_count_total() >= config.MAX_OPEN_TRADES:
-        log.debug("Max total positions reached (%d). Skipping %s.",
-                  config.MAX_OPEN_TRADES, symbol)
+        log.info("%s | SKIP — max total positions (%d) reached",
+                 symbol, config.MAX_OPEN_TRADES)
         return
 
     # ── Guard: already in this symbol
     if broker.open_position_count_symbol(symbol) >= config.MAX_TRADES_PER_SYMBOL:
-        log.debug("Already in %s. Skipping.", symbol)
+        log.info("%s | SKIP — already have an open position on this symbol", symbol)
         return
 
     # ── Fetch bars
@@ -60,20 +60,35 @@ def scan_symbol(symbol: str):
         config.ATR_PERIOD + 5,
     ))
     if bars is None:
+        log.warning("%s | Could not get bar data — symbol may not be available on this account", symbol)
         return
     closes, highs, lows, point = bars
 
     # ── Evaluate signal
     setup = strategy.analyse(closes, highs, lows, point)
 
+    # ── Always show live market status so you can see the bot is active
+    from utils import ema as _ema, rsi as _rsi
+    fast_arr = _ema(closes, config.FAST_MA_PERIOD)
+    slow_arr = _ema(closes, config.SLOW_MA_PERIOD)
+    rsi_val  = _rsi(closes, config.RSI_PERIOD)
+    gap      = fast_arr[-1] - slow_arr[-1]
+    trend    = "EMA above (bullish bias)" if gap > 0 else "EMA below (bearish bias)"
+    log.info(
+        "%s | Price: %.5f | EMA9: %.5f | EMA21: %.5f | RSI: %.1f | %s | Signal: %s",
+        symbol, closes[-1],
+        fast_arr[-1], slow_arr[-1],
+        rsi_val, trend,
+        setup.signal.name,
+    )
+
     if setup.signal == strategy.Signal.NONE:
-        log.debug("%s | No signal (EMA diff=%.5f)", symbol, closes[-1])
         return
 
     # ── Size the position
     lot = risk.calculate_lot_size(symbol, setup.sl, setup.entry_price)
     if lot <= 0:
-        log.warning("%s | Lot size calculated as 0. Skipping trade.", symbol)
+        log.warning("%s | Lot size calculated as 0 — check account balance or SL distance", symbol)
         return
 
     # ── Place the order
@@ -83,7 +98,7 @@ def scan_symbol(symbol: str):
     )
     direction = "BUY" if setup.signal == strategy.Signal.BUY else "SELL"
     log.info(
-        "SIGNAL %s %s | entry≈%.5f | SL=%.5f | TP=%.5f | lot=%.2f | ATR=%.5f",
+        "*** SIGNAL %s %s | entry≈%.5f | SL=%.5f | TP=%.5f | lot=%.2f | ATR=%.5f ***",
         direction, symbol,
         setup.entry_price, setup.sl, setup.tp,
         lot, setup.atr_value,

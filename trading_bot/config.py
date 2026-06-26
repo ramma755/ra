@@ -17,11 +17,14 @@ MT5 is already logged in to.
 
 # ─── Trading Universe ──────────────────────────────────────────────────────────
 # List every symbol you want the bot to trade simultaneously.
+# EGMSecurities uses ".lv" suffix for leverage crypto products.
 SYMBOLS = [
     "EURUSD",
     "GBPUSD",
     "USDJPY",
-    "XAUUSD",   # Gold
+    "XAUUSD",       # Gold
+    "ETHUSD.lv",    # Ethereum (leverage)
+    "LTCUSD.lv",    # Litecoin (leverage)
 ]
 
 # ─── Timeframe ─────────────────────────────────────────────────────────────────
@@ -50,8 +53,8 @@ SLIPPAGE       = 10         # Maximum allowed slippage in points
 COMMENT        = "EGMBot"   # Order comment visible in the terminal
 
 # ─── Bot Loop ──────────────────────────────────────────────────────────────────
-POLL_INTERVAL_SECONDS = 30  # How often the bot checks for new signals (seconds)
-                             # Set to ≤ 5 for M1; 30 is fine for M15+
+POLL_INTERVAL_SECONDS = 60  # How often the bot checks for new signals (seconds)
+                             # 60s is fine for M15 — candles only close every 15 min
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 LOG_FILE  = "trading_bot.log"
