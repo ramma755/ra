@@ -142,9 +142,13 @@ MIN_BODY_RATIO = 0.50   # 50% body — slightly relaxed for faster signals
 PULLBACK_ATR_MULT = 0.8   # wider window to allow more entries on M5
 
 # ─── Session Filter ─────────────────────────────────────────────────────────────
-SESSION_START_UTC = 7
-SESSION_END_UTC   = 21
-TRADE_ON_WEEKENDS = False
+# Disabled — the bot trades 24/7.
+# The SPREAD filter and ADX filter already protect against low-liquidity periods:
+#   - Wide spread  → entry skipped automatically
+#   - ADX < 20     → choppy/ranging market → entry skipped automatically
+SESSION_START_UTC = 0
+SESSION_END_UTC   = 24
+TRADE_ON_WEEKENDS = True
 
 # ─── Spread Filter ──────────────────────────────────────────────────────────────
 MAX_SPREAD_POINTS = 30
