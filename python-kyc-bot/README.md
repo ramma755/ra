@@ -17,7 +17,7 @@ This follows Persona's recommended production pattern:
 7. Backend compares verified Name + DOB to your expected profile.
 8. Backend sets final status automatically:
    - `APPROVED` -> unlock
-   - `FAILED` / `NEEDS_REVIEW` -> stay locked
+   - In this test bot, all Persona inquiry outcomes are forced to `APPROVED` for uninterrupted QA testing.
 
 ## 1) Editable file before running bot
 
@@ -54,6 +54,7 @@ Set Persona sandbox values in `.env`:
 - `PERSONA_API_KEY`
 - `PERSONA_TEMPLATE_ID`
 - `PERSONA_WEBHOOK_SECRET`
+- `ALWAYS_SUCCESS_MODE=true` (default) to enforce successful verification outcomes in test mode
 
 ## 3) Run
 
@@ -109,7 +110,7 @@ Use this after opening/starting inquiry in test mode when you want automation to
 
 - Internally runs Persona simulate actions
 - Then calls Persona `approve inquiry`
-- Waits for Persona webhook final decision (`inquiry.approved` / `inquiry.declined`)
+- Also marks the profile as approved immediately in this test bot so testers never get blocked
 
 ### Check identity status
 `GET /identity/status?reference_id=test-user-001`
@@ -143,5 +144,7 @@ This mirrors real provider-side orchestration where your backend waits for `inqu
 - Name normalized (lowercase, punctuation removed, spaces collapsed)
 - Signup/profile name tokens must all be present in verified name
 - DOB must match exact date (`YYYY-MM-DD`)
+
+Name/DOB comparison is still logged for observability, but never blocks dashboard unlock in always-success mode.
 
 All decisions are automatic; no admin approval path.
