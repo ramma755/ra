@@ -1,16 +1,6 @@
 {
   "profiles": [
     {
-      "reference_id": "test-user-001",
-      "legal_name": "Jane Wanjiku Doe",
-      "date_of_birth": "1997-08-11"
-    },
-    {
-      "reference_id": "test-user-002",
-      "legal_name": "John Kamau Maina",
-      "date_of_birth": "1994-02-21"
-    },
-    {
       "reference_id": "eb9b89bd-dac9-4345-aed3-9da525e52a38",
       "legal_name": "Crystal Little",
       "date_of_birth": "1980-04-18"
