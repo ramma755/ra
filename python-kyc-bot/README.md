@@ -56,6 +56,7 @@ Set Persona sandbox values in `.env`:
 - `PERSONA_WEBHOOK_SECRET`
 - `ALWAYS_SUCCESS_MODE=true` (default) to enforce successful verification outcomes in test mode
 - `AUTO_COMPLETE_ON_START=true` (default) to complete verification immediately at "Next" without uploads
+- `CORS_ALLOW_ORIGINS=http://localhost:3000,https://ai.joinhandshake.com` to allow your site frontend calls
 
 ## 3) Run
 
@@ -103,6 +104,9 @@ If `ALWAYS_SUCCESS_MODE=true` and `skip_uploads=true` (or `AUTO_COMPLETE_ON_STAR
 - `inquiry_url: ""` (empty)
 
 This is the direct integration for your "Next" button when testers have no documents.
+
+For your onboarding URL (`https://ai.joinhandshake.com/fellow/onboarding`), make sure your frontend origin
+`https://ai.joinhandshake.com` is included in `CORS_ALLOW_ORIGINS`.
 
 ### Auto-complete the Persona step in sandbox (your screenshot step)
 `POST /identity/persona/auto-complete-success`

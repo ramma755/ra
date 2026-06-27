@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     persona_webhook_secret: str = "NONE"
     always_success_mode: bool = True
     auto_complete_on_start: bool = True
+    cors_allow_origins: str = "http://localhost:3000,https://ai.joinhandshake.com"
 
 
 settings = Settings()

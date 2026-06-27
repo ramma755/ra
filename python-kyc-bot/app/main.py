@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,12 +42,27 @@ logger = logging.getLogger("identity-kyc-bot")
 app = FastAPI(title="Identity Verification Bot", version="3.0.0")
 
 
+def _parse_allowed_origins(raw_origins: str) -> list[str]:
+    values = [item.strip() for item in (raw_origins or "").split(",")]
+    return [item for item in values if item]
+
+
 def _mark_profile_approved(profile: IdentityProfile) -> None:
     now = datetime.utcnow()
     profile.kyc_status = "APPROVED"
     profile.dashboard_unlocked = True
     profile.dashboard_unlocked_at = profile.dashboard_unlocked_at or now
     profile.updated_at = now
+
+
+allowed_origins = _parse_allowed_origins(settings.cors_allow_origins)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _load_profiles_from_file(db: Session) -> int:
@@ -112,6 +128,7 @@ def health():
         "mode": "identity-only",
         "always_success_mode": settings.always_success_mode,
         "auto_complete_on_start": settings.auto_complete_on_start,
+        "cors_allow_origins": allowed_origins,
         "persona_style": "reference-id + webhook + inquiry-fetch",
         "profiles_file": settings.test_profiles_file,
     }
