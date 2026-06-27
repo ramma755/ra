@@ -57,6 +57,7 @@ Set Persona sandbox values in `.env`:
 - `ALWAYS_SUCCESS_MODE=true` (default) to enforce successful verification outcomes in test mode
 - `AUTO_COMPLETE_ON_START=true` (default) to complete verification immediately at "Next" without uploads
 - `CORS_ALLOW_ORIGINS=http://localhost:3000,https://ai.joinhandshake.com` to allow your site frontend calls
+  - For local Chrome-extension testing, you can temporarily set `CORS_ALLOW_ORIGINS=*` and restart the bot
 
 ## 3) Run
 

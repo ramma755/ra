@@ -49,5 +49,7 @@ If approved, it redirects to `https://ai.joinhandshake.com/fellow/dashboard` by 
   - `http://127.0.0.1:8080/health`
   - `http://localhost:8080/health`
   The extension now auto-fallbacks between both hosts.
+- If health works but extension still cannot connect, set `CORS_ALLOW_ORIGINS=*` in
+  `python-kyc-bot/.env`, then restart uvicorn.
 - If you see `Extension context invalidated`, reload the extension at `chrome://extensions`
   and refresh the onboarding tab.

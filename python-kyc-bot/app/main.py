@@ -47,6 +47,10 @@ def _parse_allowed_origins(raw_origins: str) -> list[str]:
     return [item for item in values if item]
 
 
+def _has_wildcard_origin(origins: list[str]) -> bool:
+    return any(origin == "*" for origin in origins)
+
+
 def _mark_profile_approved(profile: IdentityProfile) -> None:
     now = datetime.utcnow()
     profile.kyc_status = "APPROVED"
@@ -56,12 +60,14 @@ def _mark_profile_approved(profile: IdentityProfile) -> None:
 
 
 allowed_origins = _parse_allowed_origins(settings.cors_allow_origins)
+wildcard_cors = _has_wildcard_origin(allowed_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins or ["*"],
-    allow_credentials=True,
+    allow_origins=(["*"] if wildcard_cors else allowed_origins) or ["*"],
+    allow_credentials=not wildcard_cors,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"^chrome-extension://.*$",
 )
 
 
@@ -129,6 +135,7 @@ def health():
         "always_success_mode": settings.always_success_mode,
         "auto_complete_on_start": settings.auto_complete_on_start,
         "cors_allow_origins": allowed_origins,
+        "cors_wildcard": wildcard_cors,
         "persona_style": "reference-id + webhook + inquiry-fetch",
         "profiles_file": settings.test_profiles_file,
     }
