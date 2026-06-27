@@ -1,153 +1,183 @@
 from datetime import datetime
 import json
 import logging
-import re
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from passlib.context import CryptContext
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import Base, engine, get_db
-from app.models import IdentityEvent, User
-from app.otp import create_and_send_otp, verify_otp
+from app.config import settings
+from app.database import Base, SessionLocal, engine, get_db
+from app.models import IdentityEvent, IdentityProfile
 from app.persona_client import (
     PersonaConfigError,
     create_inquiry,
     extract_verified_identity,
     fetch_inquiry,
     names_match,
+    parse_event_id,
     parse_event_name,
     parse_inquiry_id,
+    parse_reference_id,
     verify_webhook_signature,
 )
 from app.schemas import (
     GenericMessageResponse,
+    IdentityProfileRequest,
     IdentityStatusResponse,
-    SendOtpRequest,
-    SignupRequest,
     StartPersonaRequest,
     StartPersonaResponse,
-    VerifyOtpRequest,
 )
 
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("kyc-test-bot")
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger("identity-kyc-bot")
 
-app = FastAPI(title="KYC Test Bot", version="1.0.0")
+app = FastAPI(title="Identity Verification Bot", version="2.0.0")
+
+
+def _load_profiles_from_file(db: Session) -> int:
+    path = Path(settings.test_profiles_file)
+    if not path.exists():
+        logger.warning("Profiles file not found", extra={"path": str(path)})
+        return 0
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    items = raw.get("profiles", raw) if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        raise ValueError("profiles file must contain a JSON array or {\"profiles\": [...]}")
+
+    upserts = 0
+    for item in items:
+        external_id = str(item.get("external_id", "")).strip()
+        legal_name = str(item.get("legal_name", "")).strip()
+        dob_raw = str(item.get("date_of_birth", "")).strip()
+        if not external_id or not legal_name or not dob_raw:
+            continue
+        try:
+            dob = datetime.strptime(dob_raw, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+
+        profile = db.execute(
+            select(IdentityProfile).where(IdentityProfile.external_id == external_id)
+        ).scalar_one_or_none()
+        if profile:
+            profile.legal_name = legal_name
+            profile.date_of_birth = dob
+            profile.updated_at = datetime.utcnow()
+        else:
+            profile = IdentityProfile(
+                external_id=external_id,
+                legal_name=legal_name,
+                date_of_birth=dob,
+                kyc_status="NOT_STARTED",
+                dashboard_unlocked=False,
+            )
+            db.add(profile)
+        upserts += 1
+
+    db.commit()
+    return upserts
 
 
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
-
-
-def _normalize_phone(phone: str) -> str:
-    cleaned = re.sub(r"[^\d+]", "", phone.strip())
-    if cleaned.startswith("+"):
-        cleaned = cleaned[1:]
-    # Kenyan normalization first.
-    if re.fullmatch(r"254[71]\d{8}", cleaned):
-        return cleaned
-    if re.fullmatch(r"0[71]\d{8}", cleaned):
-        return f"254{cleaned[1:]}"
-    if re.fullmatch(r"[71]\d{8}", cleaned):
-        return f"254{cleaned}"
-    # Fallback for international testing.
-    digits = re.sub(r"\D", "", cleaned)
-    if 11 <= len(digits) <= 15:
-        return digits
-    raise ValueError("Invalid phone format")
+    with SessionLocal() as db:
+        count = _load_profiles_from_file(db)
+        logger.info("Preloaded identity profiles", extra={"count": count})
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "python-kyc-test-bot"}
+    return {
+        "ok": True,
+        "service": "identity-kyc-bot",
+        "mode": "identity-only",
+        "profiles_file": settings.test_profiles_file,
+    }
 
 
-@app.post("/auth/signup", response_model=GenericMessageResponse)
-def signup(payload: SignupRequest, db: Session = Depends(get_db)):
-    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+@app.get("/profiles")
+def list_profiles(db: Session = Depends(get_db)):
+    rows = db.execute(select(IdentityProfile).order_by(IdentityProfile.created_at.asc())).scalars().all()
+    return {
+        "ok": True,
+        "count": len(rows),
+        "profiles": [
+            {
+                "external_id": row.external_id,
+                "legal_name": row.legal_name,
+                "date_of_birth": row.date_of_birth.isoformat(),
+                "kyc_status": row.kyc_status,
+                "dashboard_unlocked": row.dashboard_unlocked,
+            }
+            for row in rows
+        ],
+    }
 
-    phone = _normalize_phone(payload.phone)
-    phone_exists = db.execute(select(User).where(User.phone == phone)).scalar_one_or_none()
-    if phone_exists:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
 
-    user = User(
-        email=payload.email.lower().strip(),
-        password_hash=pwd_context.hash(payload.password),
-        legal_name=payload.legal_name.strip(),
-        date_of_birth=payload.date_of_birth,
-        phone=phone,
-        email_verified=True,
-        phone_verified=False,
-        kyc_status="NOT_STARTED",
-        dashboard_unlocked=False,
-    )
-    db.add(user)
+@app.post("/profiles/upsert", response_model=GenericMessageResponse)
+def upsert_profile(payload: IdentityProfileRequest, db: Session = Depends(get_db)):
+    profile = db.execute(
+        select(IdentityProfile).where(IdentityProfile.external_id == payload.external_id)
+    ).scalar_one_or_none()
+    if profile:
+        profile.legal_name = payload.legal_name.strip()
+        profile.date_of_birth = payload.date_of_birth
+        profile.updated_at = datetime.utcnow()
+    else:
+        profile = IdentityProfile(
+            external_id=payload.external_id.strip(),
+            legal_name=payload.legal_name.strip(),
+            date_of_birth=payload.date_of_birth,
+            kyc_status="NOT_STARTED",
+            dashboard_unlocked=False,
+        )
+        db.add(profile)
     db.commit()
-    return {"ok": True, "message": "Signup successful. Verify phone with OTP."}
+    return {"ok": True, "message": "Profile saved."}
 
 
-@app.post("/auth/phone/send-otp", response_model=GenericMessageResponse)
-def send_phone_otp(payload: SendOtpRequest, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == payload.email.lower().strip())).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    create_and_send_otp(db, user)
-    return {"ok": True, "message": "OTP sent."}
-
-
-@app.post("/auth/phone/verify-otp", response_model=GenericMessageResponse)
-def verify_phone_otp(payload: VerifyOtpRequest, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == payload.email.lower().strip())).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    valid = verify_otp(db, user, payload.otp_code.strip())
-    if not valid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired OTP")
-    return {"ok": True, "message": "Phone verified."}
+@app.post("/profiles/reload", response_model=GenericMessageResponse)
+def reload_profiles(db: Session = Depends(get_db)):
+    count = _load_profiles_from_file(db)
+    return {"ok": True, "message": f"Reloaded {count} profile entries from file."}
 
 
 @app.post("/identity/persona/start", response_model=StartPersonaResponse)
 def start_persona(payload: StartPersonaRequest, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == payload.email.lower().strip())).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    if not user.phone_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone must be verified before identity verification.",
-        )
+    profile = db.execute(
+        select(IdentityProfile).where(IdentityProfile.external_id == payload.external_id.strip())
+    ).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
 
     try:
         inquiry_id, inquiry_url = create_inquiry(
-            user_id=user.id,
-            legal_name=user.legal_name,
-            date_of_birth=user.date_of_birth,
+            reference_id=profile.external_id,
+            legal_name=profile.legal_name,
+            date_of_birth=profile.date_of_birth,
         )
     except PersonaConfigError as error:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error))
     except Exception as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Persona start failed: {error}")
 
-    user.persona_inquiry_id = inquiry_id
-    user.persona_inquiry_status = "created"
-    user.kyc_status = "IN_PROGRESS"
-    user.updated_at = datetime.utcnow()
+    profile.persona_inquiry_id = inquiry_id
+    profile.persona_inquiry_status = "inquiry.created"
+    profile.kyc_status = "IN_PROGRESS"
+    profile.dashboard_unlocked = False
+    profile.updated_at = datetime.utcnow()
     db.add(
         IdentityEvent(
-            user_id=user.id,
+            profile_id=profile.id,
             event_name="inquiry.started",
             inquiry_id=inquiry_id,
             status="IN_PROGRESS",
-            reason=None,
-            payload={"source": "api"},
+            reason="Persona inquiry started",
+            payload={"source": "api", "external_id": profile.external_id},
         )
     )
     db.commit()
@@ -161,19 +191,22 @@ def start_persona(payload: StartPersonaRequest, db: Session = Depends(get_db)):
 
 
 @app.get("/identity/status", response_model=IdentityStatusResponse)
-def identity_status(email: str, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.email == email.lower().strip())).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+def identity_status(external_id: str = Query(..., min_length=2), db: Session = Depends(get_db)):
+    profile = db.execute(
+        select(IdentityProfile).where(IdentityProfile.external_id == external_id.strip())
+    ).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
     return {
         "ok": True,
-        "email": user.email,
-        "phone_verified": user.phone_verified,
-        "kyc_status": user.kyc_status,
-        "persona_inquiry_id": user.persona_inquiry_id,
-        "persona_inquiry_status": user.persona_inquiry_status,
-        "dashboard_unlocked": user.dashboard_unlocked,
-        "dashboard_unlocked_at": user.dashboard_unlocked_at,
+        "external_id": profile.external_id,
+        "legal_name": profile.legal_name,
+        "date_of_birth": profile.date_of_birth,
+        "kyc_status": profile.kyc_status,
+        "persona_inquiry_id": profile.persona_inquiry_id,
+        "persona_inquiry_status": profile.persona_inquiry_status,
+        "dashboard_unlocked": profile.dashboard_unlocked,
+        "dashboard_unlocked_at": profile.dashboard_unlocked_at,
     }
 
 
@@ -189,18 +222,29 @@ async def persona_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload")
 
+    event_id = parse_event_id(payload)
+    if event_id:
+        already_seen = db.execute(
+            select(IdentityEvent).where(IdentityEvent.event_id == event_id).limit(1)
+        ).scalar_one_or_none()
+        if already_seen:
+            return {"ok": True, "message": "Duplicate webhook ignored."}
+
     event_name = parse_event_name(payload)
     inquiry_id = parse_inquiry_id(payload)
-    user = (
-        db.execute(select(User).where(User.persona_inquiry_id == inquiry_id)).scalar_one_or_none()
+    profile = (
+        db.execute(select(IdentityProfile).where(IdentityProfile.persona_inquiry_id == inquiry_id))
+        .scalars()
+        .first()
         if inquiry_id
         else None
     )
 
     db.add(
         IdentityEvent(
-            user_id=user.id if user else None,
+            profile_id=profile.id if profile else None,
             event_name=event_name or "unknown",
+            event_id=event_id or None,
             inquiry_id=inquiry_id or None,
             status=None,
             reason=None,
@@ -208,66 +252,76 @@ async def persona_webhook(request: Request, db: Session = Depends(get_db)):
         )
     )
 
-    if not user:
-        db.commit()
-        return {"ok": True, "message": "event logged (no user mapped)"}
-
-    user.persona_inquiry_status = event_name or user.persona_inquiry_status
-
-    if event_name in {"inquiry.approved", "inquiry.completed"}:
+    # If profile was not found by inquiry ID, try mapping through reference-id.
+    inquiry_payload = None
+    if inquiry_id and not profile:
         try:
             inquiry_payload = fetch_inquiry(inquiry_id)
-            verified_name, verified_dob = extract_verified_identity(inquiry_payload)
-        except Exception as error:
-            user.kyc_status = "FAILED"
-            user.dashboard_unlocked = False
-            user.updated_at = datetime.utcnow()
-            db.add(
-                IdentityEvent(
-                    user_id=user.id,
-                    event_name="inquiry.failed",
-                    inquiry_id=inquiry_id,
-                    status="FAILED",
-                    reason=f"failed-to-fetch-inquiry: {error}",
-                    payload=None,
-                )
-            )
-            db.commit()
-            return {"ok": True, "message": "inquiry fetch failed; marked FAILED"}
+            ref_id = parse_reference_id(inquiry_payload)
+            if ref_id:
+                profile = db.execute(
+                    select(IdentityProfile).where(IdentityProfile.external_id == ref_id)
+                ).scalar_one_or_none()
+                if profile and not profile.persona_inquiry_id:
+                    profile.persona_inquiry_id = inquiry_id
+                    profile.updated_at = datetime.utcnow()
+        except Exception:
+            profile = None
 
-        signup_name = user.legal_name
-        signup_dob = user.date_of_birth.isoformat()
-        dob_matches = bool(verified_dob and verified_dob == signup_dob)
-        name_matches = names_match(signup_name, verified_name or "")
+    if not profile:
+        db.commit()
+        return {"ok": True, "message": "event logged (no profile mapped)"}
 
-        if name_matches and dob_matches:
-            user.kyc_status = "APPROVED"
-            user.dashboard_unlocked = True
-            user.dashboard_unlocked_at = datetime.utcnow()
-            user.updated_at = datetime.utcnow()
+    profile.persona_inquiry_status = event_name or profile.persona_inquiry_status
+
+    if event_name in {"inquiry.created", "inquiry.started"}:
+        profile.kyc_status = "IN_PROGRESS"
+        profile.dashboard_unlocked = False
+        profile.updated_at = datetime.utcnow()
+
+    elif event_name in {"inquiry.approved", "inquiry.completed"}:
+        if inquiry_payload is None:
+            inquiry_payload = fetch_inquiry(inquiry_id)
+        verified_name, verified_dob = extract_verified_identity(inquiry_payload)
+        expected_name = profile.legal_name
+        expected_dob = profile.date_of_birth.isoformat()
+        name_ok = names_match(expected_name, verified_name or "")
+        dob_ok = bool(verified_dob and verified_dob == expected_dob)
+
+        if name_ok and dob_ok:
+            profile.kyc_status = "APPROVED"
+            profile.dashboard_unlocked = True
+            profile.dashboard_unlocked_at = datetime.utcnow()
         else:
-            user.kyc_status = "FAILED"
-            user.dashboard_unlocked = False
-            user.updated_at = datetime.utcnow()
+            profile.kyc_status = "FAILED"
+            profile.dashboard_unlocked = False
             db.add(
                 IdentityEvent(
-                    user_id=user.id,
-                    event_name="inquiry.failed",
+                    profile_id=profile.id,
+                    event_name="identity.mismatch",
+                    event_id=None,
                     inquiry_id=inquiry_id,
                     status="FAILED",
-                    reason=f"name_or_dob_mismatch(name={name_matches},dob={dob_matches})",
+                    reason=f"name_or_dob_mismatch(name={name_ok},dob={dob_ok})",
                     payload={
-                        "signup_name": signup_name,
+                        "expected_name": expected_name,
                         "verified_name": verified_name,
-                        "signup_dob": signup_dob,
+                        "expected_dob": expected_dob,
                         "verified_dob": verified_dob,
                     },
                 )
             )
-    elif event_name in {"inquiry.declined", "inquiry.failed"}:
-        user.kyc_status = "FAILED"
-        user.dashboard_unlocked = False
-        user.updated_at = datetime.utcnow()
+        profile.updated_at = datetime.utcnow()
+
+    elif event_name in {"inquiry.declined", "inquiry.failed", "inquiry.expired"}:
+        profile.kyc_status = "FAILED"
+        profile.dashboard_unlocked = False
+        profile.updated_at = datetime.utcnow()
+
+    elif event_name == "inquiry.marked-for-review":
+        profile.kyc_status = "NEEDS_REVIEW"
+        profile.dashboard_unlocked = False
+        profile.updated_at = datetime.utcnow()
 
     db.commit()
     return {"ok": True}

@@ -1,15 +1,45 @@
-# Python KYC Test Bot (Persona Sandbox)
+# Python Identity Verification Bot (Persona Sandbox)
 
-This is a standalone Python service for testing your mobile/web onboarding flow with:
+Identity-only orchestration service for testing ID/DL + selfie verification with Persona.
 
-1. Email signup
-2. Phone OTP verification
-3. Automatic identity verification with Persona sandbox (ID/DL + selfie)
-4. Automatic Name + DOB match before dashboard unlock
+No email auth, no phone OTP, no admin manual approve/fail.
 
-No admin approval is required. Decisions are automatic.
+## How it works (Persona <-> your platform)
 
-## 1) Install
+This follows Persona's recommended production pattern:
+
+1. Your frontend asks backend to start an inquiry.
+2. Backend creates Persona inquiry (`reference-id` = your user external id) and returns inquiry URL.
+3. Frontend opens Persona flow (ID front/back + selfie).
+4. Persona sends webhook events to your backend.
+5. Backend verifies `Persona-Signature` (HMAC on raw body).
+6. Backend fetches authoritative inquiry data from Persona API.
+7. Backend compares verified Name + DOB to your expected profile.
+8. Backend sets final status automatically:
+   - `APPROVED` -> unlock
+   - `FAILED` / `NEEDS_REVIEW` -> stay locked
+
+## 1) Editable file before running bot
+
+Edit this file first:
+
+`profiles.json`
+
+```json
+{
+  "profiles": [
+    {
+      "external_id": "test-user-001",
+      "legal_name": "Jane Wanjiku Doe",
+      "date_of_birth": "1997-08-11"
+    }
+  ]
+}
+```
+
+This file is loaded automatically on startup.
+
+## 2) Install
 
 ```bash
 cd python-kyc-bot
@@ -19,84 +49,75 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Update `.env` with your Persona sandbox keys/template.
+Set Persona sandbox values in `.env`:
 
-## 2) Run
+- `PERSONA_API_KEY`
+- `PERSONA_TEMPLATE_ID`
+- `PERSONA_WEBHOOK_SECRET`
+
+## 3) Run
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-## 3) API Flow
+## 4) API
 
-### Signup
+### List loaded test profiles
+`GET /profiles`
 
-`POST /auth/signup`
-
-```json
-{
-  "email": "tester@example.com",
-  "password": "StrongPass123!",
-  "legal_name": "Jane Wanjiku Doe",
-  "date_of_birth": "1997-08-11",
-  "phone": "+254712345678"
-}
-```
-
-### Send OTP
-
-`POST /auth/phone/send-otp`
-
-```json
-{ "email": "tester@example.com" }
-```
-
-### Verify OTP
-
-`POST /auth/phone/verify-otp`
+### Update or add one profile
+`POST /profiles/upsert`
 
 ```json
 {
-  "email": "tester@example.com",
-  "otp_code": "123456"
+  "external_id": "test-user-003",
+  "legal_name": "Alice Njeri",
+  "date_of_birth": "1999-01-09"
 }
 ```
+
+### Reload profiles from editable file
+`POST /profiles/reload`
 
 ### Start Persona inquiry
-
 `POST /identity/persona/start`
 
 ```json
-{ "email": "tester@example.com" }
+{
+  "external_id": "test-user-001"
+}
 ```
 
-Response contains the `inquiry_id` and Persona URL. Open that URL in frontend/webview.
+Response includes:
 
-### Identity status
+- `inquiry_id`
+- `inquiry_url`
+- `status`
 
-`GET /identity/status?email=tester@example.com`
+### Check identity status
+`GET /identity/status?external_id=test-user-001`
 
-## 4) Persona Webhook
+## 5) Persona webhook setup
 
-Configure Persona webhook to:
+Set webhook URL:
 
 `POST /webhooks/persona`
 
-Use the same `PERSONA_WEBHOOK_SECRET` in Persona dashboard and `.env`.
+Recommended events:
 
-When Persona marks an inquiry complete/approved, this service:
+- `inquiry.created`
+- `inquiry.started`
+- `inquiry.completed`
+- `inquiry.approved`
+- `inquiry.declined`
+- `inquiry.failed`
+- `inquiry.marked-for-review`
 
-- fetches the inquiry details,
-- extracts verified name and DOB,
-- compares against signup data,
-- sets status:
-  - `APPROVED` -> dashboard unlocked
-  - `FAILED` -> mismatch reason recorded
+## 6) Name + DOB matching rules
 
-## 5) Name + DOB matching logic
+- Name normalized (lowercase, punctuation removed, spaces collapsed)
+- Signup/profile name tokens must all be present in verified name
+- DOB must match exact date (`YYYY-MM-DD`)
 
-- Name is normalized (case-folded, punctuation stripped, whitespace collapsed).
-- Name tokens from signup must be present in verified identity name.
-- DOB must match exactly (YYYY-MM-DD).
-
-This keeps testing realistic while fully automatic.
+All decisions are automatic; no admin approval path.

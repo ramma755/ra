@@ -29,14 +29,14 @@ def _headers() -> dict[str, str]:
     }
 
 
-def create_inquiry(*, user_id: int, legal_name: str, date_of_birth: date) -> tuple[str, str]:
+def create_inquiry(*, reference_id: str, legal_name: str, date_of_birth: date) -> tuple[str, str]:
     _require_persona_ready()
     endpoint = f"{settings.persona_base_url.rstrip('/')}/inquiries"
     payload = {
         "data": {
             "type": "inquiry",
             "attributes": {
-                "reference-id": str(user_id),
+                "reference-id": str(reference_id),
                 "note": f"signup_name={legal_name};signup_dob={date_of_birth.isoformat()}",
             },
             "relationships": {
@@ -91,13 +91,36 @@ def verify_webhook_signature(signature_header: str | None, raw_body: bytes) -> b
 
 
 def parse_event_name(webhook_json: dict[str, Any]) -> str:
-    return str(webhook_json.get("data", {}).get("attributes", {}).get("name", "")).strip().lower()
+    return str(
+        webhook_json.get("data", {}).get("attributes", {}).get("name", "")
+        or webhook_json.get("name", "")
+        or webhook_json.get("event", "")
+    ).strip().lower()
 
 
 def parse_inquiry_id(webhook_json: dict[str, Any]) -> str:
-    relationships = webhook_json.get("data", {}).get("relationships", {})
-    inquiry = relationships.get("inquiry", {}).get("data", {})
-    return str(inquiry.get("id", "")).strip()
+    relationships = webhook_json.get("data", {}).get("relationships", {}) or {}
+    inquiry = relationships.get("inquiry", {}).get("data", {}) or {}
+    if inquiry.get("id"):
+        return str(inquiry.get("id", "")).strip()
+
+    payload_data = (
+        webhook_json.get("data", {})
+        .get("attributes", {})
+        .get("payload", {})
+        .get("data", {})
+    )
+    return str(payload_data.get("id", "")).strip()
+
+
+def parse_event_id(webhook_json: dict[str, Any]) -> str:
+    return str(webhook_json.get("data", {}).get("id", "")).strip()
+
+
+def parse_reference_id(inquiry_payload: dict[str, Any]) -> str:
+    return str(
+        inquiry_payload.get("data", {}).get("attributes", {}).get("reference-id", "")
+    ).strip()
 
 
 def _normalize_name(raw_name: str) -> str:

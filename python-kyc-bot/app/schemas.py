@@ -1,13 +1,5 @@
 from datetime import date, datetime
-from pydantic import BaseModel, EmailStr, Field
-
-
-class SignupRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
-    legal_name: str = Field(min_length=2, max_length=255)
-    date_of_birth: date
-    phone: str = Field(min_length=9, max_length=32)
+from pydantic import BaseModel, Field
 
 
 class GenericMessageResponse(BaseModel):
@@ -15,17 +7,14 @@ class GenericMessageResponse(BaseModel):
     message: str
 
 
-class SendOtpRequest(BaseModel):
-    email: EmailStr
-
-
-class VerifyOtpRequest(BaseModel):
-    email: EmailStr
-    otp_code: str = Field(min_length=4, max_length=8)
+class IdentityProfileRequest(BaseModel):
+    external_id: str = Field(min_length=2, max_length=128)
+    legal_name: str = Field(min_length=2, max_length=255)
+    date_of_birth: date
 
 
 class StartPersonaRequest(BaseModel):
-    email: EmailStr
+    external_id: str = Field(min_length=2, max_length=128)
 
 
 class StartPersonaResponse(BaseModel):
@@ -37,8 +26,9 @@ class StartPersonaResponse(BaseModel):
 
 class IdentityStatusResponse(BaseModel):
     ok: bool
-    email: EmailStr
-    phone_verified: bool
+    external_id: str
+    legal_name: str
+    date_of_birth: date
     kyc_status: str
     persona_inquiry_id: str | None
     persona_inquiry_status: str | None
