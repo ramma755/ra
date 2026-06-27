@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     persona_base_url: str = "https://withpersona.com/api/v1"
     persona_webhook_secret: str = "NONE"
     always_success_mode: bool = True
+    auto_complete_on_start: bool = True
 
 
 settings = Settings()

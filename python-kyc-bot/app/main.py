@@ -111,6 +111,7 @@ def health():
         "service": "identity-kyc-bot",
         "mode": "identity-only",
         "always_success_mode": settings.always_success_mode,
+        "auto_complete_on_start": settings.auto_complete_on_start,
         "persona_style": "reference-id + webhook + inquiry-fetch",
         "profiles_file": settings.test_profiles_file,
     }
@@ -191,7 +192,32 @@ def start_persona(payload: StartPersonaRequest, db: Session = Depends(get_db)):
         inquiry_url = ""
         logger.warning("Persona start failed; falling back to local success inquiry", exc_info=True)
 
+    skip_uploads = (
+        payload.skip_uploads if payload.skip_uploads is not None else settings.auto_complete_on_start
+    )
     profile.persona_inquiry_id = inquiry_id
+
+    if settings.always_success_mode and skip_uploads:
+        profile.persona_inquiry_status = "inquiry.approved"
+        _mark_profile_approved(profile)
+        db.add(
+            IdentityEvent(
+                profile_id=profile.id,
+                event_name="inquiry.auto-approved-no-upload",
+                inquiry_id=inquiry_id,
+                status="APPROVED",
+                reason="skip_uploads=true in always-success mode",
+                payload={"source": "api", "reference_id": profile.reference_id, "skip_uploads": True},
+            )
+        )
+        db.commit()
+        return {
+            "ok": True,
+            "inquiry_id": inquiry_id,
+            "inquiry_url": "",
+            "status": "APPROVED",
+        }
+
     profile.persona_inquiry_status = "inquiry.created"
     profile.kyc_status = "IN_PROGRESS"
     profile.dashboard_unlocked = False
@@ -203,7 +229,7 @@ def start_persona(payload: StartPersonaRequest, db: Session = Depends(get_db)):
             inquiry_id=inquiry_id,
             status="IN_PROGRESS",
             reason="Persona inquiry started",
-            payload={"source": "api", "reference_id": profile.reference_id},
+            payload={"source": "api", "reference_id": profile.reference_id, "skip_uploads": bool(skip_uploads)},
         )
     )
     db.commit()

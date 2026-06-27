@@ -55,6 +55,7 @@ Set Persona sandbox values in `.env`:
 - `PERSONA_TEMPLATE_ID`
 - `PERSONA_WEBHOOK_SECRET`
 - `ALWAYS_SUCCESS_MODE=true` (default) to enforce successful verification outcomes in test mode
+- `AUTO_COMPLETE_ON_START=true` (default) to complete verification immediately at "Next" without uploads
 
 ## 3) Run
 
@@ -86,7 +87,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 ```json
 {
-  "reference_id": "test-user-001"
+  "reference_id": "test-user-001",
+  "skip_uploads": true
 }
 ```
 
@@ -95,6 +97,12 @@ Response includes:
 - `inquiry_id`
 - `inquiry_url`
 - `status`
+
+If `ALWAYS_SUCCESS_MODE=true` and `skip_uploads=true` (or `AUTO_COMPLETE_ON_START=true`), the response will be:
+- `status: "APPROVED"`
+- `inquiry_url: ""` (empty)
+
+This is the direct integration for your "Next" button when testers have no documents.
 
 ### Auto-complete the Persona step in sandbox (your screenshot step)
 `POST /identity/persona/auto-complete-success`

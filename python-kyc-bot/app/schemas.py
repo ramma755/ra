@@ -15,6 +15,7 @@ class IdentityProfileRequest(BaseModel):
 
 class StartPersonaRequest(BaseModel):
     reference_id: str = Field(min_length=2, max_length=128)
+    skip_uploads: bool | None = None
 
 
 class StartPersonaResponse(BaseModel):
