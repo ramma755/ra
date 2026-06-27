@@ -8,13 +8,13 @@ class GenericMessageResponse(BaseModel):
 
 
 class IdentityProfileRequest(BaseModel):
-    external_id: str = Field(min_length=2, max_length=128)
+    reference_id: str = Field(min_length=2, max_length=128)
     legal_name: str = Field(min_length=2, max_length=255)
     date_of_birth: date
 
 
 class StartPersonaRequest(BaseModel):
-    external_id: str = Field(min_length=2, max_length=128)
+    reference_id: str = Field(min_length=2, max_length=128)
 
 
 class StartPersonaResponse(BaseModel):
@@ -25,13 +25,13 @@ class StartPersonaResponse(BaseModel):
 
 
 class AutoCompleteRequest(BaseModel):
-    external_id: str = Field(min_length=2, max_length=128)
+    reference_id: str = Field(min_length=2, max_length=128)
     verification_template_ids: list[str] = Field(default_factory=list)
 
 
 class IdentityStatusResponse(BaseModel):
     ok: bool
-    external_id: str
+    reference_id: str
     legal_name: str
     date_of_birth: date
     kyc_status: str

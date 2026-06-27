@@ -9,7 +9,7 @@ No email auth, no phone OTP, no admin manual approve/fail.
 This follows Persona's recommended production pattern:
 
 1. Your frontend asks backend to start an inquiry.
-2. Backend creates Persona inquiry (`reference-id` = your user external id) and returns inquiry URL.
+2. Backend creates Persona inquiry (`reference-id` = your platform user ID) and returns inquiry URL.
 3. Frontend opens Persona flow (ID front/back + selfie).
 4. Persona sends webhook events to your backend.
 5. Backend verifies `Persona-Signature` (HMAC on raw body).
@@ -29,7 +29,7 @@ Edit this file first:
 {
   "profiles": [
     {
-      "external_id": "test-user-001",
+      "reference_id": "test-user-001",
       "legal_name": "Jane Wanjiku Doe",
       "date_of_birth": "1997-08-11"
     }
@@ -71,7 +71,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 ```json
 {
-  "external_id": "test-user-003",
+  "reference_id": "test-user-003",
   "legal_name": "Alice Njeri",
   "date_of_birth": "1999-01-09"
 }
@@ -85,7 +85,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 
 ```json
 {
-  "external_id": "test-user-001"
+  "reference_id": "test-user-001"
 }
 ```
 
@@ -100,7 +100,7 @@ Response includes:
 
 ```json
 {
-  "external_id": "test-user-001",
+  "reference_id": "test-user-001",
   "verification_template_ids": []
 }
 ```
@@ -109,10 +109,10 @@ Use this after opening/starting inquiry in test mode when you want automation to
 
 - Internally runs Persona simulate actions
 - Then calls Persona `approve inquiry`
-- Updates local status to APPROVED immediately (webhook later reconciles)
+- Waits for Persona webhook final decision (`inquiry.approved` / `inquiry.declined`)
 
 ### Check identity status
-`GET /identity/status?external_id=test-user-001`
+`GET /identity/status?reference_id=test-user-001`
 
 ## 5) Persona webhook setup
 

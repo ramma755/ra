@@ -9,7 +9,7 @@ class IdentityProfile(Base):
     __tablename__ = "identity_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    external_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     legal_name: Mapped[str] = mapped_column(String(255), nullable=False)
     date_of_birth: Mapped[date] = mapped_column(Date, nullable=False)
 

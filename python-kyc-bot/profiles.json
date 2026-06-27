@@ -1,12 +1,12 @@
 {
   "profiles": [
     {
-      "external_id": "test-user-001",
+      "reference_id": "test-user-001",
       "legal_name": "Jane Wanjiku Doe",
       "date_of_birth": "1997-08-11"
     },
     {
-      "external_id": "test-user-002",
+      "reference_id": "test-user-002",
       "legal_name": "John Kamau Maina",
       "date_of_birth": "1994-02-21"
     }
