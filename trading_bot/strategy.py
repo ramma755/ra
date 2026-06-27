@@ -65,24 +65,16 @@ def analyse(
     """
     reasons = []
 
-    # ── GATE 1: Trend alignment — H1 and M15 must both agree ─────────────────
-    h1_fast_arr  = ema(h1_closes, config.FAST_MA_PERIOD)
-    h1_slow_arr  = ema(h1_closes, config.SLOW_MA_PERIOD)
-    m15_fast_arr = ema(h4_closes, config.FAST_MA_PERIOD)   # h4_ slot carries M15
-    m15_slow_arr = ema(h4_closes, config.SLOW_MA_PERIOD)
+    # ── GATE 1: H1 trend direction (single source of truth) ──────────────────
+    # Only H1 decides whether we look for buys or sells.
+    # No conflict possible — one timeframe, one direction.
+    h1_fast_arr = ema(h1_closes, config.FAST_MA_PERIOD)
+    h1_slow_arr = ema(h1_closes, config.SLOW_MA_PERIOD)
+    trend_bull  = h1_fast_arr[-1] > h1_slow_arr[-1]
+    reasons.append(f"H1={'BULL' if trend_bull else 'BEAR'}")
 
-    h1_bull  = h1_fast_arr[-1]  > h1_slow_arr[-1]
-    m15_bull = m15_fast_arr[-1] > m15_slow_arr[-1]
-    reasons.append(f"H1={'BULL' if h1_bull else 'BEAR'} M15={'BULL' if m15_bull else 'BEAR'}")
-
-    if h1_bull != m15_bull:
-        reasons.append("BLOCKED: H1 and M15 trend conflict")
-        return _none(closes[-1], reasons)
-
-    trend_bull = h1_bull
-
-    # ── GATE 2: ADX on M15 ≥ ADX_MIN ─────────────────────────────────────────
-    adx_val = adx(h4_highs, h4_lows, h4_closes, config.ADX_PERIOD)
+    # ── GATE 2: ADX on H1 ≥ ADX_MIN (strong trend, not choppy) ──────────────
+    adx_val = adx(h1_highs, h1_lows, h1_closes, config.ADX_PERIOD)
     reasons.append(f"ADX={adx_val:.1f}")
     if adx_val < config.ADX_MIN:
         reasons.append(f"BLOCKED: ADX {adx_val:.1f} < {config.ADX_MIN} — choppy market")
@@ -107,11 +99,12 @@ def analyse(
 
     reasons.append(f"M5 {'CrossUP' if cross_up else 'CrossDOWN'}")
 
+    # Cross must align with H1 trend direction
     if cross_up and not trend_bull:
-        reasons.append("BLOCKED: BUY signal against bearish trend")
+        reasons.append("BLOCKED: BUY cross but H1 is bearish — skipping")
         return _none(closes[-1], reasons)
     if cross_down and trend_bull:
-        reasons.append("BLOCKED: SELL signal against bullish trend")
+        reasons.append("BLOCKED: SELL cross but H1 is bullish — skipping")
         return _none(closes[-1], reasons)
 
     # ── GATE 4: RSI + MACD quick momentum check ───────────────────────────────
