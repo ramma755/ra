@@ -45,3 +45,7 @@ If approved, it redirects to `https://ai.joinhandshake.com/fellow/dashboard` by 
 
 - Keep your local bot terminal running while using the extension.
 - You can change the values in the modal; they are saved locally in Chrome extension storage.
+- If you see `Failed to fetch`, verify the bot URL and test:
+  - `http://127.0.0.1:8080/health`
+  - `http://localhost:8080/health`
+  The extension now auto-fallbacks between both hosts.

@@ -242,14 +242,16 @@
         if (!response?.ok) {
           throw new Error(response?.error || "Verification request failed.");
         }
-        setStatus("Approved. Verification completed successfully.");
+        const via = response?.baseUrl ? ` via ${response.baseUrl}` : "";
+        setStatus(`Approved. Verification completed successfully${via}.`);
         if (state.redirectAfterApproval && state.dashboardUrl) {
           setTimeout(() => {
             window.location.href = state.dashboardUrl;
           }, 500);
         }
       } catch (error) {
-        setStatus(error.message, true);
+        const hint = " Ensure local bot is running: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080";
+        setStatus(`${error.message}${hint}`, true);
       } finally {
         setBusy(false);
       }
