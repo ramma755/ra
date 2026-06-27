@@ -1,13 +1,6 @@
 """
-Broker interface — MetaTrader5 Python API wrapper.
-
-Handles:
-  - Connecting to the running MT5 terminal (auto-detects active account)
-  - Fetching OHLC bars for both entry and trend timeframes
-  - Spread validation before entry
-  - Counting open positions
-  - Sending market orders
-  - Break-even and trailing-stop management
+Broker interface — MetaTrader5 API wrapper.
+Handles: connect, bar fetching, spread check, orders, break-even, trailing stop.
 """
 
 import logging
@@ -22,271 +15,181 @@ from utils import get_mt5_timeframe, atr
 log = logging.getLogger("EGMBot")
 
 
-# ─── Connection ────────────────────────────────────────────────────────────────
+# ── Connection ──────────────────────────────────────────────────────────────────
 
 def connect() -> bool:
-    """
-    Attach to the already-running MT5 terminal.
-    The bot uses whichever account MT5 is currently logged in to.
-    Switch accounts inside MT5 itself — no file editing required.
-    """
     if not mt5.initialize():
-        log.error(
-            "Could not connect to MetaTrader 5.\n"
-            "  → Make sure MT5 is open and you are logged in before starting the bot.\n"
-            "  → Error: %s", mt5.last_error()
-        )
+        log.error("MT5 initialize() failed: %s — make sure MT5 is open and logged in.",
+                  mt5.last_error())
         return False
-
     info = mt5.account_info()
     if info is None:
         log.error("Could not read account info: %s", mt5.last_error())
         return False
-
-    account_type = "DEMO" if info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "LIVE"
-    log.info(
-        "Connected to MT5 | [%s] Account: %s | Name: %s | Balance: %.2f %s",
-        account_type, info.login, info.name, info.balance, info.currency,
-    )
+    mode = "DEMO" if info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "LIVE"
+    log.info("Connected [%s] Account: %s | %s | Balance: %.2f %s",
+             mode, info.login, info.name, info.balance, info.currency)
     return True
 
 
 def disconnect():
     mt5.shutdown()
-    log.info("MT5 connection closed.")
+    log.info("MT5 disconnected.")
 
 
-# ─── Spread Guard ──────────────────────────────────────────────────────────────
+# ── Spread guard ────────────────────────────────────────────────────────────────
 
 def spread_ok(symbol: str) -> bool:
-    """
-    Returns True if the current spread is within the allowed maximum.
-    Uses a percentage check so it works for forex, stocks, indices, and crypto.
-    """
     tick = mt5.symbol_info_tick(symbol)
     if tick is None or tick.bid == 0:
         return False
-    spread_pct = (tick.ask - tick.bid) / tick.bid * 100
-    if spread_pct > config.MAX_SPREAD_PCT:
-        log.info(
-            "%s | SPREAD TOO WIDE: %.3f%% (max %.2f%%) — skipping",
-            symbol, spread_pct, config.MAX_SPREAD_PCT,
-        )
+    pct = (tick.ask - tick.bid) / tick.bid * 100.0
+    if pct > config.MAX_SPREAD_PCT:
+        log.info("%s | SPREAD %.3f%% > %.2f%% — skipping", symbol, pct, config.MAX_SPREAD_PCT)
         return False
     return True
 
 
-# ─── Market Data ───────────────────────────────────────────────────────────────
+# ── Bar fetching ────────────────────────────────────────────────────────────────
 
-def _fetch_rates(symbol: str, tf_str: str, count: int):
+def _fetch(symbol: str, tf_str: str, count: int) -> Optional[np.ndarray]:
     tf = get_mt5_timeframe(tf_str)
-    if not mt5.symbol_select(symbol, True):
-        log.warning("Cannot select symbol %s", symbol)
-        return None
+    mt5.symbol_select(symbol, True)
     rates = mt5.copy_rates_from_pos(symbol, tf, 0, count + 1)
     if rates is None or len(rates) < count:
-        log.warning("Not enough bars for %s on %s (%s returned)",
-                    symbol, tf_str, len(rates) if rates is not None else 0)
         return None
-    return rates[:-1]  # drop still-forming bar
+    return rates[:-1]   # drop still-forming bar
 
 
-def get_bars(symbol: str, count: int = 120):
-    """
-    Returns (closes, highs, lows, opens, point) for the ENTRY timeframe,
-    or None on failure.
-    """
-    rates = _fetch_rates(symbol, config.ENTRY_TF, count)
-    if rates is None:
+def get_entry_bars(symbol: str, count: int = 120):
+    """M5 bars: returns (closes, highs, lows, opens, point) or None."""
+    r = _fetch(symbol, config.ENTRY_TF, count)
+    if r is None:
         return None
-    info = mt5.symbol_info(symbol)
+    info  = mt5.symbol_info(symbol)
     point = info.point if info else 0.00001
-    return (
-        rates["close"].astype(np.float64),
-        rates["high"].astype(np.float64),
-        rates["low"].astype(np.float64),
-        rates["open"].astype(np.float64),
-        point,
-    )
+    return (r["close"].astype(np.float64), r["high"].astype(np.float64),
+            r["low"].astype(np.float64),   r["open"].astype(np.float64), point)
 
 
-def get_trend_bars(symbol: str, count: int = 60):
-    """
-    Returns (closes, highs, lows) for the H1 TREND timeframe, or None.
-    """
-    rates = _fetch_rates(symbol, config.TREND_TF, count)
-    if rates is None:
+def get_trend_bars(symbol: str, count: int = 100):
+    """H1 bars: returns (closes, highs, lows) or None."""
+    r = _fetch(symbol, config.TREND_TF, count)
+    if r is None:
         return None
-    return (
-        rates["close"].astype(np.float64),
-        rates["high"].astype(np.float64),
-        rates["low"].astype(np.float64),
-    )
+    return (r["close"].astype(np.float64), r["high"].astype(np.float64),
+            r["low"].astype(np.float64))
 
 
-def get_macro_bars(symbol: str, count: int = 60):
-    """
-    Returns (closes, highs, lows) for the MACRO timeframe (M15 in scalping, H4 in swing).
-    """
-    rates = _fetch_rates(symbol, config.MACRO_TF, count)
-    if rates is None:
-        return None
-    return (
-        rates["close"].astype(np.float64),
-        rates["high"].astype(np.float64),
-        rates["low"].astype(np.float64),
-    )
+# ── Position queries ────────────────────────────────────────────────────────────
+
+def open_count_total() -> int:
+    return len([p for p in (mt5.positions_get() or [])
+                if p.magic == config.MAGIC_NUMBER])
 
 
-# ─── Position Queries ──────────────────────────────────────────────────────────
-
-def open_position_count_total() -> int:
-    positions = mt5.positions_get() or []
-    return len([p for p in positions if p.magic == config.MAGIC_NUMBER])
-
-
-def open_position_count_symbol(symbol: str) -> int:
-    positions = mt5.positions_get(symbol=symbol) or []
-    return len([p for p in positions if p.magic == config.MAGIC_NUMBER])
+def open_count_symbol(symbol: str) -> int:
+    return len([p for p in (mt5.positions_get(symbol=symbol) or [])
+                if p.magic == config.MAGIC_NUMBER])
 
 
 def get_open_positions():
-    """Return all positions belonging to this bot."""
-    positions = mt5.positions_get() or []
-    return [p for p in positions if p.magic == config.MAGIC_NUMBER]
+    return [p for p in (mt5.positions_get() or [])
+            if p.magic == config.MAGIC_NUMBER]
 
 
-# ─── Order Execution ───────────────────────────────────────────────────────────
+# ── Order execution ─────────────────────────────────────────────────────────────
 
-def send_order(
-    symbol:     str,
-    order_type: int,
-    lot:        float,
-    sl:         float,
-    tp:         float,
-) -> bool:
+def send_order(symbol: str, order_type: int, lot: float, sl: float, tp: float) -> bool:
     info = mt5.symbol_info(symbol)
     if info is None:
-        log.error("send_order: no symbol info for %s", symbol)
+        log.error("send_order: no info for %s", symbol)
         return False
-
     price  = info.ask if order_type == mt5.ORDER_TYPE_BUY else info.bid
     digits = info.digits
-    sl = round(sl, digits)
-    tp = round(tp, digits)
-
-    request = {
+    req = {
         "action":       mt5.TRADE_ACTION_DEAL,
         "symbol":       symbol,
         "volume":       lot,
         "type":         order_type,
         "price":        price,
-        "sl":           sl,
-        "tp":           tp,
+        "sl":           round(sl, digits),
+        "tp":           round(tp, digits),
         "deviation":    config.SLIPPAGE,
         "magic":        config.MAGIC_NUMBER,
         "comment":      config.COMMENT,
         "type_time":    mt5.ORDER_TIME_GTC,
         "type_filling": mt5.ORDER_FILLING_IOC,
     }
-
-    result = mt5.order_send(request)
-    if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-        log.error("Order rejected for %s | retcode=%s | %s",
-                  symbol,
-                  result.retcode if result else "None",
-                  result.comment if result else "")
+    res = mt5.order_send(req)
+    if res is None or res.retcode != mt5.TRADE_RETCODE_DONE:
+        log.error("Order REJECTED %s | retcode=%s | %s",
+                  symbol, res.retcode if res else "None",
+                  res.comment if res else "")
         return False
-
     direction = "BUY" if order_type == mt5.ORDER_TYPE_BUY else "SELL"
-    log.info(
-        "✅ Order placed | %s %s | lot=%.2f | price=%.5f | SL=%.5f | TP=%.5f | ticket=#%s",
-        direction, symbol, lot, price, sl, tp, result.order,
-    )
+    log.info("✅ %s %s | lot=%.2f | price=%.5f | SL=%.5f | TP=%.5f | #%s",
+             direction, symbol, lot, price, round(sl, digits), round(tp, digits), res.order)
     return True
 
 
-# ─── Trade Management — Break-Even & Trailing Stop ─────────────────────────────
+# ── Break-even & trailing stop ──────────────────────────────────────────────────
 
-def _modify_sl(position, new_sl: float) -> bool:
-    """Send a request to move the stop-loss of an open position."""
-    info = mt5.symbol_info(position.symbol)
+def _modify_sl(pos, new_sl: float) -> bool:
+    info = mt5.symbol_info(pos.symbol)
     if info is None:
         return False
-    new_sl = round(new_sl, info.digits)
-
-    request = {
+    req = {
         "action":   mt5.TRADE_ACTION_SLTP,
-        "position": position.ticket,
-        "symbol":   position.symbol,
-        "sl":       new_sl,
-        "tp":       position.tp,
+        "position": pos.ticket,
+        "symbol":   pos.symbol,
+        "sl":       round(new_sl, info.digits),
+        "tp":       pos.tp,
     }
-    result = mt5.order_send(request)
-    return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
+    res = mt5.order_send(req)
+    return res is not None and res.retcode == mt5.TRADE_RETCODE_DONE
 
 
 def manage_open_positions():
-    """
-    For every open position placed by this bot:
-      1. Break-even: move SL to entry once price is BREAKEVEN_R × risk in profit.
-      2. Trailing stop: once TRAIL_START_R × risk in profit, trail by TRAIL_STEP_ATR × ATR.
-    """
     for pos in get_open_positions():
-        symbol = pos.symbol
         is_buy = pos.type == mt5.POSITION_TYPE_BUY
-
-        # Get current ATR for this symbol
-        bars = get_bars(symbol, count=max(config.ATR_PERIOD + 5, 30))
+        bars   = get_entry_bars(pos.symbol, count=config.ATR_PERIOD + 5)
         if bars is None:
             continue
-        closes, highs, lows, opens, point = bars
-        current_atr = atr(highs, lows, closes, config.ATR_PERIOD)
+        closes, highs, lows, _, _ = bars
+        cur_atr = atr(highs, lows, closes, config.ATR_PERIOD)
 
-        tick = mt5.symbol_info_tick(symbol)
+        tick = mt5.symbol_info_tick(pos.symbol)
         if tick is None:
             continue
-        current_price = tick.bid if is_buy else tick.ask
+        price = tick.bid if is_buy else tick.ask
 
-        entry  = pos.price_open
-        sl     = pos.sl
-        tp     = pos.tp
-
+        sl        = pos.sl
+        entry     = pos.price_open
         if sl == 0:
             continue
+        risk_dist   = abs(entry - sl)
+        profit_dist = (price - entry) if is_buy else (entry - price)
+        new_sl      = sl
 
-        risk_dist  = abs(entry - sl)
-        profit_dist = (current_price - entry) if is_buy else (entry - current_price)
-
-        new_sl = sl  # default: no change
-
-        # ── Break-even ────────────────────────────────────────────────────────
-        be_threshold = risk_dist * config.BREAKEVEN_R
-        if profit_dist >= be_threshold:
+        # Break-even
+        if profit_dist >= risk_dist * config.BREAKEVEN_R:
             if is_buy and sl < entry:
                 new_sl = max(new_sl, entry)
             elif not is_buy and sl > entry:
                 new_sl = min(new_sl, entry)
 
-        # ── Trailing stop ─────────────────────────────────────────────────────
-        trail_threshold = risk_dist * config.TRAIL_START_R
-        if profit_dist >= trail_threshold:
-            trail_dist = current_atr * config.TRAIL_STEP_ATR
+        # Trailing stop
+        if profit_dist >= risk_dist * config.TRAIL_START_R:
+            trail = cur_atr * config.TRAIL_STEP_ATR
             if is_buy:
-                trailed_sl = current_price - trail_dist
-                new_sl = max(new_sl, trailed_sl)
+                new_sl = max(new_sl, price - trail)
             else:
-                trailed_sl = current_price + trail_dist
-                new_sl = min(new_sl, trailed_sl)
+                new_sl = min(new_sl, price + trail)
 
-        # ── Apply if changed ──────────────────────────────────────────────────
-        info = mt5.symbol_info(symbol)
+        info = mt5.symbol_info(pos.symbol)
         if info and abs(new_sl - sl) > info.point:
-            action = "BREAK-EVEN" if abs(new_sl - entry) < info.point * 2 else "TRAIL SL"
+            tag = "BE" if abs(new_sl - entry) < info.point * 5 else "TRAIL"
             if _modify_sl(pos, new_sl):
-                log.info(
-                    "🔒 %s #%s %s | SL moved %.5f → %.5f | profit_dist=%.5f",
-                    action, pos.ticket, symbol, sl, new_sl, profit_dist,
-                )
-            else:
-                log.warning("Failed to modify SL for #%s", pos.ticket)
+                log.info("🔒 %s #%s %s SL %.5f→%.5f",
+                         tag, pos.ticket, pos.symbol, sl, new_sl)

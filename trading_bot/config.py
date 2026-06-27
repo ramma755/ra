@@ -5,182 +5,98 @@ HOW TO SWITCH BETWEEN LIVE AND DEMO
 ─────────────────────────────────────
 Open MetaTrader 5, log in to the account you want, then start the bot.
 The bot connects to whatever account MT5 is already logged in to automatically.
+No file editing needed to switch accounts.
 """
 
-# ─── MT5 Connection ─────────────────────────────────────────────────────────────
+# ── MT5 Connection ──────────────────────────────────────────────────────────────
 # No credentials needed. Bot attaches to the running MT5 terminal automatically.
 
-# ─── Trading Universe ───────────────────────────────────────────────────────────
-# All symbols visible in the EGMSecurities Market Watch.
-# More markets = more signals per hour = more trading opportunities.
+# ── Trading Universe ────────────────────────────────────────────────────────────
 SYMBOLS = [
-    # ── Forex Majors ──────────────────────────────────────────────
-    "EURUSD",
-    "GBPUSD",
-    "USDJPY",
-    "USDCHF",
-    "USDCAD",
-    "AUDUSD",
-    "NZDUSD",
-
-    # ── Forex Crosses — EUR ───────────────────────────────────────
-    "EURGBP",
-    "EURJPY",
-    "EURCHF",
-    "EURAUD",
-    "EURCAD",
-    "EURNZD",
-    "EURNOK",
-    "EURSEK",
-    "EURSGD",
-    "EURZAR",
-    "EURMXN",
-    "EURPLN",
-
-    # ── Forex Crosses — GBP ───────────────────────────────────────
-    "GBPJPY",
-    "GBPCHF",
-    "GBPAUD",
-    "GBPCAD",
-    "GBPNZD",
-    "GBPNOK",
-    "GBPSEK",
-    "GBPSGD",
-    "GBPZAR",
-
-    # ── Forex Crosses — AUD ───────────────────────────────────────
-    "AUDJPY",
-    "AUDCAD",
-    "AUDCHF",
-    "AUDNZD",
-    "AUDSGD",
-
-    # ── Forex Crosses — CAD ───────────────────────────────────────
-    "CADJPY",
-    "CADCHF",
-    "CADSGD",
-
-    # ── Forex Crosses — Other ─────────────────────────────────────
-    "CHFJPY",
-    "NZDCAD",
-    "NOKSEK",
-    "NOKJPY",
-    "SEKJPY",
-    "SGDJPY",
-    "MXNJPY",
-
-    # ── USD Exotics ───────────────────────────────────────────────
-    "USDMXN",
-    "USDNOK",
-    "USDAED",
-    "USDCNH",
-    "USDHKD",
-
-    # ── Commodities ───────────────────────────────────────────────
-    "XAUUSD",       # Gold
-    "USOILRoll",    # US Oil (WTI)
-    "UKOILRoll",    # UK Oil (Brent)
-
-    # ── Stock Indices ─────────────────────────────────────────────
-    "US500Roll",    # S&P 500
-    "US30Roll",     # Dow Jones
-    "UT100Roll",    # Nasdaq 100
-    "UK100Roll",    # FTSE 100
-    "DE40Roll",     # DAX 40
-
-    # ── Stocks ────────────────────────────────────────────────────
-    "NVIDIA",
-    "Apple",
-    "Tesla",
-    "AMD",
-    "Facebook",
-    "Microsoft",
-    "Netflix",
-
-    # ── Crypto ────────────────────────────────────────────────────
-    "ETHUSD.lv",    # Ethereum leverage
-    "LTCUSD.lv",    # Litecoin leverage
+    # Forex Majors
+    "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "AUDUSD", "NZDUSD",
+    # EUR Crosses
+    "EURGBP", "EURJPY", "EURCHF", "EURAUD", "EURCAD", "EURNZD",
+    "EURNOK", "EURSEK", "EURSGD", "EURZAR", "EURMXN", "EURPLN",
+    # GBP Crosses
+    "GBPJPY", "GBPCHF", "GBPAUD", "GBPCAD", "GBPNZD",
+    "GBPNOK", "GBPSEK", "GBPSGD", "GBPZAR",
+    # AUD Crosses
+    "AUDJPY", "AUDCAD", "AUDCHF", "AUDNZD", "AUDSGD",
+    # CAD Crosses
+    "CADJPY", "CADCHF", "CADSGD",
+    # Other Crosses
+    "CHFJPY", "NZDCAD", "NOKSEK", "NOKJPY", "SEKJPY", "SGDJPY", "MXNJPY",
+    # USD Exotics
+    "USDMXN", "USDNOK", "USDAED", "USDCNH", "USDHKD",
+    # Commodities
+    "XAUUSD", "USOILRoll", "UKOILRoll",
+    # Indices
+    "US500Roll", "US30Roll", "UT100Roll", "UK100Roll", "DE40Roll",
+    # Stocks
+    "NVIDIA", "Apple", "Tesla", "AMD", "Facebook", "Microsoft", "Netflix",
+    # Crypto
+    "ETHUSD.lv", "LTCUSD.lv",
 ]
 
-# ─── Timeframes ─────────────────────────────────────────────────────────────────
-# Scalping setup:
-#   M5  = entry signals  (fires every few minutes)
-#   M15 = trend filter   (intermediate direction)
-# Both must agree before any trade is placed.
-ENTRY_TF = "M5"
-TREND_TF = "M15"
-MACRO_TF = "H1"    # big-picture safety net
+# ── Timeframes ──────────────────────────────────────────────────────────────────
+ENTRY_TF = "M5"    # where signals are detected
+TREND_TF  = "H1"   # trend direction filter
 
-# ─── EMA Settings ───────────────────────────────────────────────────────────────
-# Faster periods = more signals on M5
+# ── EMA ─────────────────────────────────────────────────────────────────────────
 FAST_MA_PERIOD = 8
 SLOW_MA_PERIOD = 21
 
-# ─── RSI ────────────────────────────────────────────────────────────────────────
-RSI_PERIOD     = 7     # fast RSI reacts quickly on M5
+# ── RSI ─────────────────────────────────────────────────────────────────────────
+RSI_PERIOD     = 7
 RSI_OVERBOUGHT = 65
 RSI_OVERSOLD   = 35
 
-# ─── MACD ───────────────────────────────────────────────────────────────────────
+# ── MACD ────────────────────────────────────────────────────────────────────────
 MACD_FAST   = 8
 MACD_SLOW   = 21
-MACD_SIGNAL = 5    # faster signal line for scalping
+MACD_SIGNAL = 5
 
-# ─── ADX (Trend Strength) ───────────────────────────────────────────────────────
+# ── ADX ─────────────────────────────────────────────────────────────────────────
 ADX_PERIOD = 14
-ADX_MIN    = 20    # lower than swing trading — scalping works in lighter trends too
+ADX_MIN    = 20
 
-# ─── Stochastic ─────────────────────────────────────────────────────────────────
-STOCH_K_PERIOD = 5    # very fast stochastic for scalping
+# ── Stochastic ──────────────────────────────────────────────────────────────────
+STOCH_K_PERIOD = 5
 STOCH_D_PERIOD = 3
 
-# ─── Candle Body Strength ───────────────────────────────────────────────────────
-MIN_BODY_RATIO = 0.50   # 50% body — slightly relaxed for faster signals
+# ── Candle Body ─────────────────────────────────────────────────────────────────
+MIN_BODY_RATIO = 0.50
 
-# ─── Pullback Entry ─────────────────────────────────────────────────────────────
-# Price must be within this many ATRs of the slow EMA before entering.
-PULLBACK_ATR_MULT = 0.8   # wider window to allow more entries on M5
+# ── Pullback Entry ──────────────────────────────────────────────────────────────
+PULLBACK_ATR_MULT = 0.8
 
-# ─── Session Filter ─────────────────────────────────────────────────────────────
-# Disabled — the bot trades 24/7.
-# The SPREAD filter and ADX filter already protect against low-liquidity periods:
-#   - Wide spread  → entry skipped automatically
-#   - ADX < 20     → choppy/ranging market → entry skipped automatically
-SESSION_START_UTC = 0
-SESSION_END_UTC   = 24
-TRADE_ON_WEEKENDS = True
+# ── Spread Filter ───────────────────────────────────────────────────────────────
+# Percentage-based — works for forex, stocks, indices, and crypto.
+MAX_SPREAD_PCT = 0.10   # skip if spread > 0.10% of price
 
-# ─── Spread Filter ──────────────────────────────────────────────────────────────
-# Percentage-based spread check — works for ALL instrument types.
-# spread % = (ask - bid) / bid × 100
-# Forex majors normal spread: ~0.01–0.03%
-# Stocks / indices normal spread: ~0.02–0.08%
-# Skip entry if spread exceeds this threshold.
-MAX_SPREAD_PCT = 0.10   # 0.10% — catches genuinely wide spreads on any instrument
-
-# ─── Risk Management ────────────────────────────────────────────────────────────
+# ── Risk Management ─────────────────────────────────────────────────────────────
 RISK_PERCENT   = 1.0
-REWARD_RATIO   = 1.5      # 1:1.5 R:R — smaller TP that gets hit quickly
+REWARD_RATIO   = 1.5
 ATR_PERIOD     = 14
-ATR_MULTIPLIER = 1.0      # tighter SL on scalping (1×ATR instead of 1.5×)
+ATR_MULTIPLIER = 1.0
 
-MAX_OPEN_TRADES       = 6   # allow more simultaneous trades for scalping
+MAX_OPEN_TRADES       = 6
 MAX_TRADES_PER_SYMBOL = 1
 
-# ─── Trade Management ───────────────────────────────────────────────────────────
-BREAKEVEN_R    = 0.8   # move to break-even sooner (protects quick scalp gains)
-TRAIL_START_R  = 1.0   # start trailing at 1R
-TRAIL_STEP_ATR = 0.5   # tighter trail on scalps
+# ── Trade Protection ────────────────────────────────────────────────────────────
+BREAKEVEN_R    = 0.8
+TRAIL_START_R  = 1.0
+TRAIL_STEP_ATR = 0.5
 
-# ─── Execution ──────────────────────────────────────────────────────────────────
+# ── Execution ───────────────────────────────────────────────────────────────────
 MAGIC_NUMBER = 20260626
 SLIPPAGE     = 10
 COMMENT      = "EGMBot"
 
-# ─── Bot Loop ───────────────────────────────────────────────────────────────────
-# Scan every 15 seconds — catches signals within seconds of them forming on M5
+# ── Bot Loop ────────────────────────────────────────────────────────────────────
 POLL_INTERVAL_SECONDS = 15
 
-# ─── Logging ────────────────────────────────────────────────────────────────────
+# ── Logging ─────────────────────────────────────────────────────────────────────
 LOG_FILE  = "trading_bot.log"
 LOG_LEVEL = "INFO"
