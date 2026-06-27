@@ -77,7 +77,7 @@ MAX_SPREAD_PCT = 0.10   # skip if spread > 0.10% of price
 
 # ── Risk Management ─────────────────────────────────────────────────────────────
 RISK_PERCENT   = 1.0
-REWARD_RATIO   = 1.5
+REWARD_RATIO   = 3.0   # risk $1 to make $3 — only needs 25% win rate to profit
 ATR_PERIOD     = 14
 ATR_MULTIPLIER = 1.0
 
