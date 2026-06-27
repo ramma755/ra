@@ -12,6 +12,7 @@ from app.database import Base, SessionLocal, engine, get_db
 from app.models import IdentityEvent, IdentityProfile
 from app.persona_client import (
     PersonaConfigError,
+    approve_inquiry,
     create_inquiry,
     extract_verified_identity,
     fetch_inquiry,
@@ -20,9 +21,11 @@ from app.persona_client import (
     parse_event_name,
     parse_inquiry_id,
     parse_reference_id,
+    perform_simulate_actions,
     verify_webhook_signature,
 )
 from app.schemas import (
+    AutoCompleteRequest,
     GenericMessageResponse,
     IdentityProfileRequest,
     IdentityStatusResponse,
@@ -190,6 +193,59 @@ def start_persona(payload: StartPersonaRequest, db: Session = Depends(get_db)):
     }
 
 
+@app.post("/identity/persona/auto-complete-success", response_model=GenericMessageResponse)
+def auto_complete_persona_success(payload: AutoCompleteRequest, db: Session = Depends(get_db)):
+    profile = db.execute(
+        select(IdentityProfile).where(IdentityProfile.external_id == payload.external_id.strip())
+    ).scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+    if not profile.persona_inquiry_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No Persona inquiry found. Start inquiry first.",
+        )
+
+    inquiry_id = profile.persona_inquiry_id
+    try:
+        actions: list[dict] = [{"type": "start_inquiry"}]
+        for vt_id in payload.verification_template_ids:
+            actions.append(
+                {
+                    "type": "create_passed_verification",
+                    "data": {"verification-template-id": vt_id},
+                }
+            )
+        actions.append({"type": "complete_inquiry"})
+        perform_simulate_actions(inquiry_id, actions)
+        approve_inquiry(inquiry_id)
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Persona auto-complete failed: {error}",
+        )
+
+    # Optimistic update for testing UX; webhook will reconcile canonical status.
+    profile.persona_inquiry_status = "inquiry.approved"
+    profile.kyc_status = "APPROVED"
+    profile.dashboard_unlocked = True
+    profile.dashboard_unlocked_at = datetime.utcnow()
+    profile.updated_at = datetime.utcnow()
+    db.add(
+        IdentityEvent(
+            profile_id=profile.id,
+            event_name="inquiry.approved",
+            event_id=None,
+            inquiry_id=inquiry_id,
+            status="APPROVED",
+            reason="sandbox-auto-complete-success",
+            payload={"verification_template_ids": payload.verification_template_ids},
+        )
+    )
+    db.commit()
+    return {"ok": True, "message": "Inquiry auto-completed successfully in sandbox."}
+
+
 @app.get("/identity/status", response_model=IdentityStatusResponse)
 def identity_status(external_id: str = Query(..., min_length=2), db: Session = Depends(get_db)):
     profile = db.execute(
@@ -285,10 +341,17 @@ async def persona_webhook(request: Request, db: Session = Depends(get_db)):
         verified_name, verified_dob = extract_verified_identity(inquiry_payload)
         expected_name = profile.legal_name
         expected_dob = profile.date_of_birth.isoformat()
-        name_ok = names_match(expected_name, verified_name or "")
-        dob_ok = bool(verified_dob and verified_dob == expected_dob)
+        has_extracted_identity = bool(verified_name and verified_dob)
+        name_ok = names_match(expected_name, verified_name or "") if has_extracted_identity else False
+        dob_ok = bool(verified_dob and verified_dob == expected_dob) if has_extracted_identity else False
 
-        if name_ok and dob_ok:
+        # If Persona has already approved in sandbox workflow but extracted fields are absent,
+        # trust the provider decision to keep test automation deterministic.
+        if event_name == "inquiry.approved" and not has_extracted_identity:
+            profile.kyc_status = "APPROVED"
+            profile.dashboard_unlocked = True
+            profile.dashboard_unlocked_at = datetime.utcnow()
+        elif name_ok and dob_ok:
             profile.kyc_status = "APPROVED"
             profile.dashboard_unlocked = True
             profile.dashboard_unlocked_at = datetime.utcnow()

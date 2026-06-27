@@ -66,6 +66,23 @@ def fetch_inquiry(inquiry_id: str) -> dict[str, Any]:
     return response.json()
 
 
+def perform_simulate_actions(inquiry_id: str, actions: list[dict[str, Any]]) -> dict[str, Any]:
+    _require_persona_ready()
+    endpoint = f"{settings.persona_base_url.rstrip('/')}/inquiries/{inquiry_id}/perform-simulate-actions"
+    payload = {"meta": {"simulate-actions": actions}}
+    response = requests.post(endpoint, json=payload, headers=_headers(), timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def approve_inquiry(inquiry_id: str) -> dict[str, Any]:
+    _require_persona_ready()
+    endpoint = f"{settings.persona_base_url.rstrip('/')}/inquiries/{inquiry_id}/approve"
+    response = requests.post(endpoint, json={}, headers=_headers(), timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
 def verify_webhook_signature(signature_header: str | None, raw_body: bytes) -> bool:
     secret = settings.persona_webhook_secret
     if not secret or secret == "NONE":

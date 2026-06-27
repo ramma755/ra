@@ -24,6 +24,11 @@ class StartPersonaResponse(BaseModel):
     status: str
 
 
+class AutoCompleteRequest(BaseModel):
+    external_id: str = Field(min_length=2, max_length=128)
+    verification_template_ids: list[str] = Field(default_factory=list)
+
+
 class IdentityStatusResponse(BaseModel):
     ok: bool
     external_id: str

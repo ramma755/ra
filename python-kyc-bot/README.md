@@ -95,6 +95,22 @@ Response includes:
 - `inquiry_url`
 - `status`
 
+### Auto-complete the Persona step in sandbox (your screenshot step)
+`POST /identity/persona/auto-complete-success`
+
+```json
+{
+  "external_id": "test-user-001",
+  "verification_template_ids": []
+}
+```
+
+Use this after opening/starting inquiry in test mode when you want automation to push the inquiry to success.
+
+- Internally runs Persona simulate actions
+- Then calls Persona `approve inquiry`
+- Updates local status to APPROVED immediately (webhook later reconciles)
+
 ### Check identity status
 `GET /identity/status?external_id=test-user-001`
 
@@ -113,6 +129,14 @@ Recommended events:
 - `inquiry.declined`
 - `inquiry.failed`
 - `inquiry.marked-for-review`
+
+### Recommended Persona dashboard setup for clean automation
+
+In Sandbox Workflows:
+1. Trigger: `inquiry.completed`
+2. Action: `Approve Inquiry`
+
+This mirrors real provider-side orchestration where your backend waits for `inquiry.approved` as final actionable status.
 
 ## 6) Name + DOB matching rules
 
