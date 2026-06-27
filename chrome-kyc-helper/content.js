@@ -13,9 +13,86 @@
 
   const state = { ...defaults };
   const storageKey = "handshakeKycHelperSettings";
+  const storageFallbackKey = "__handshakeKycHelperSettingsFallback";
+
+  function getFallbackSettings() {
+    try {
+      const raw = window.localStorage.getItem(storageFallbackKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function setFallbackSettings(value) {
+    try {
+      window.localStorage.setItem(storageFallbackKey, JSON.stringify(value));
+    } catch (_error) {
+      // Ignore localStorage failures in locked-down browser contexts.
+    }
+  }
+
+  function canUseChromeRuntime() {
+    try {
+      return Boolean(chrome?.runtime?.id);
+    } catch (_error) {
+      return false;
+    }
+  }
 
   function saveSettings() {
-    chrome.storage.local.set({ [storageKey]: state });
+    setFallbackSettings(state);
+    if (!canUseChromeRuntime()) return;
+    try {
+      chrome.storage.local.set({ [storageKey]: state });
+    } catch (_error) {
+      // Ignore stale/invalidation errors and keep local fallback only.
+    }
+  }
+
+  function loadSettings(callback) {
+    const fallback = getFallbackSettings();
+    if (!canUseChromeRuntime()) {
+      callback(fallback);
+      return;
+    }
+    try {
+      chrome.storage.local.get(storageKey, (data) => {
+        if (chrome.runtime.lastError) {
+          callback(fallback);
+          return;
+        }
+        callback(data?.[storageKey] || fallback);
+      });
+    } catch (_error) {
+      callback(fallback);
+    }
+  }
+
+  function sendRuntimeMessage(message) {
+    return new Promise((resolve, reject) => {
+      if (!canUseChromeRuntime()) {
+        reject(
+          new Error(
+            "Extension context invalidated. Reload extension in chrome://extensions, then refresh this onboarding page."
+          )
+        );
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          resolve(response);
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   function injectStyles() {
@@ -230,7 +307,7 @@
       setBusy(true);
       setStatus("Calling local bot...");
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = await sendRuntimeMessage({
           type: "RUN_INSTANT_KYC_VERIFICATION",
           payload: {
             botUrl: state.botUrl,
@@ -250,16 +327,23 @@
           }, 500);
         }
       } catch (error) {
+        const message = String(error?.message || error);
+        if (message.toLowerCase().includes("context invalidated")) {
+          setStatus(
+            "Extension was updated/reloaded. Refresh this page, then click Approve now again.",
+            true
+          );
+          return;
+        }
         const hint = " Ensure local bot is running: python -m uvicorn app.main:app --host 0.0.0.0 --port 8080";
-        setStatus(`${error.message}${hint}`, true);
+        setStatus(`${message}${hint}`, true);
       } finally {
         setBusy(false);
       }
     });
   }
 
-  chrome.storage.local.get(storageKey, (data) => {
-    const saved = data?.[storageKey];
+  loadSettings((saved) => {
     if (saved && typeof saved === "object") {
       Object.assign(state, saved);
     }
