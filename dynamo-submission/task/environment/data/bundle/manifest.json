@@ -1,0 +1,20 @@
+{
+  "release_version": "2.0.9",
+  "project": "widgetlib",
+  "artifacts": [
+    {
+      "path": "widgetlib-2.0.9-py3-none-any.whl",
+      "kind": "wheel",
+      "version": "2.0.9",
+      "sha256": "aa989bc4f454506a029db68faa87a9e82d8c862b4fa866f1b59415639c38f1a1",
+      "size_bytes": 839
+    },
+    {
+      "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+      "kind": "wheel",
+      "version": "2.0.9",
+      "sha256": "f9d80be929de2960f691a4cfd0573704588ecfcd0b79148caf53b69661aae5b8",
+      "size_bytes": 880
+    }
+  ]
+}

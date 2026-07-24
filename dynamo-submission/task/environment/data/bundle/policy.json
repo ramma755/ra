@@ -1,0 +1,7 @@
+{
+  "require_sdist_in_manifest": true,
+  "forbidden_tag_substrings": [
+    "py2",
+    "manylinux2014"
+  ]
+}
