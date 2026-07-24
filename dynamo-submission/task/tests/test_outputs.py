@@ -10,9 +10,24 @@ EXPECTED_ISSUES = [
         "detail": "wheel tag contains forbidden substring 'manylinux2014'",
     },
     {
+        "code": "METADATA_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "METADATA Version 2.0.9.post1 is not PEP 440-equal to manifest version 2.0.9",
+    },
+    {
+        "code": "PYTHON_TAG_BELOW_MINIMUM",
+        "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+        "detail": "wheel tag implies Python 3.10, below policy minimum_python_version 3.11",
+    },
+    {
+        "code": "REQUIRES_DIST_MISMATCH",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "Requires-Dist set differs from widgetlib-2.0.9-py3-none-any.whl",
+    },
+    {
         "code": "SDIST_METADATA_VERSION_MISMATCH",
         "path": "widgetlib-2.0.9.tar.gz",
-        "detail": "PKG-INFO Version 2.0.8 != release_version 2.0.9",
+        "detail": "PKG-INFO Version 2.0.8 is not PEP 440-equal to release_version 2.0.9",
     },
     {
         "code": "SDIST_MISSING_FROM_MANIFEST",
@@ -65,24 +80,31 @@ def test_gate_passed_is_false():
 
 
 def test_blocking_issue_count():
-    """blocking_issue_count must equal the number of blocking issues (4)."""
+    """blocking_issue_count must equal the number of blocking issues (7)."""
     data = _load()
-    assert data["blocking_issue_count"] == 4
+    assert data["blocking_issue_count"] == 7
     assert data["blocking_issue_count"] == len(data["blocking_issues"])
 
 
 def test_blocking_issues_exact_and_sorted():
-    """blocking_issues must list every rule violation, sorted by (code, path, detail)."""
+    """blocking_issues must list every rule violation with exact detail templates, sorted by (code, path, detail)."""
     issues = _load()["blocking_issues"]
     assert issues == sorted(issues, key=lambda i: (i["code"], i["path"], i["detail"]))
     assert issues == EXPECTED_ISSUES
 
 
+def test_sdist_double_emission_required():
+    """Both SDIST_MISSING_FROM_MANIFEST and UNMANIFESTED_ARTIFACT must be emitted for the sdist."""
+    codes = {i["code"] for i in _load()["blocking_issues"]}
+    assert "SDIST_MISSING_FROM_MANIFEST" in codes
+    assert "UNMANIFESTED_ARTIFACT" in codes
+
+
 def test_manifested_artifact_count():
-    """manifested_artifact_count must equal manifest.json artifact entries (2)."""
-    assert _load()["manifested_artifact_count"] == 2
+    """manifested_artifact_count must equal manifest.json artifact entries (3)."""
+    assert _load()["manifested_artifact_count"] == 3
 
 
 def test_disk_artifact_count():
-    """disk_artifact_count must equal files under /app/bundle/artifacts/ (3)."""
-    assert _load()["disk_artifact_count"] == 3
+    """disk_artifact_count must equal files under /app/bundle/artifacts/ (4)."""
+    assert _load()["disk_artifact_count"] == 4

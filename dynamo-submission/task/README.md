@@ -1,10 +1,10 @@
 # dynamo/release-gate
 
-Audit a staged Python release bundle (wheels + sdist) against `manifest.json` and `policy.json`, producing a release gate report at `/app/release_gate.json`.
+Audit a staged Python release bundle against `manifest.json`, `policy.json`, and embedded wheel/sdist metadata.
 
 ## Trap design
 
-The two wheels listed in the manifest both pass SHA-256 verification. A naive agent that stops after checksum validation will incorrectly set `gate_passed: true`. The real failures are policy and metadata issues: forbidden `manylinux2014` tag, sdist omitted from manifest, and PKG-INFO version skew.
+All three manifested wheels pass SHA-256 verification. Failures require PEP 440 version comparison (`2.0.9.post1` vs `2.0.9`), Requires-Dist set matching across wheels, cp310 tag below minimum Python 3.11, forbidden `manylinux2014` tag, and sdist manifest/metadata issues.
 
 ## Local verification
 

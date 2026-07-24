@@ -3,5 +3,7 @@
   "forbidden_tag_substrings": [
     "py2",
     "manylinux2014"
-  ]
+  ],
+  "minimum_python_version": "3.11",
+  "requires_dist_must_match_across_wheels": true
 }

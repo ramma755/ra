@@ -6,15 +6,22 @@
       "path": "widgetlib-2.0.9-py3-none-any.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "aa989bc4f454506a029db68faa87a9e82d8c862b4fa866f1b59415639c38f1a1",
-      "size_bytes": 839
+      "sha256": "1d4d2ba832e78dc2ba627ffcb6370c9bd15a722d2783e44cd7de80f857e19765",
+      "size_bytes": 878
+    },
+    {
+      "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "version": "2.0.9",
+      "sha256": "5d5bd594f40e681e5108b8e95c760456b86761f2bfd2cd521bb1cfd0e1c59a22",
+      "size_bytes": 915
     },
     {
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "f9d80be929de2960f691a4cfd0573704588ecfcd0b79148caf53b69661aae5b8",
-      "size_bytes": 880
+      "sha256": "b423d657078ffb6b3e3122fa6b1e03e03378fac4e69085b1a4fd08532de337ec",
+      "size_bytes": 938
     }
   ]
 }
