@@ -1,0 +1,66 @@
+name: Deploy Dynamo Task to Fork
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ra (task source)
+        uses: actions/checkout@v4
+        with:
+          ref: cursor/dynamo-release-gate-5517
+
+      - name: Clone Dynamo fork
+        env:
+          DYNAMO_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$DYNAMO_TOKEN" ]; then
+            echo "ERROR: Add repository secret DYNAMO_DEPLOY_TOKEN (PAT with repo scope for your fork)."
+            exit 1
+          fi
+          git clone "https://x-access-token:${DYNAMO_TOKEN}@github.com/ramma755/dynamo-342b8ef-build-dependency-and-release-management.git" fork
+          cd fork
+          git checkout submission 2>/dev/null || git checkout -b submission
+          rsync -a --delete "$GITHUB_WORKSPACE/dynamo-submission/task/" task/
+          chmod +x task/solution/solve.sh task/tests/test.sh
+          git add -A
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -m "Task submission: dynamo/release-gate"
+          git push -u origin submission
+
+      - name: Open pull request
+        env:
+          DYNAMO_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
+          GH_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
+        run: |
+          cd fork
+          gh pr create \
+            --repo handshake-project-dynamo/dynamo-342b8ef-build-dependency-and-release-management \
+            --head ramma755:submission \
+            --title "Task submission: dynamo/release-gate" \
+            --body "## One-sentence problem
+          The task is done when the agent audits the staged release bundle and writes a correct gate report to /app/release_gate.json.
+
+          ## Success criteria
+          1. Write /app/release_gate.json with all six required keys.
+          2. Copy release_version from manifest.json.
+          3. Emit blocking issues for every rule violation.
+          4. Sort blocking_issues by (code, path, detail).
+          5. Set gate_passed true only when blocking_issue_count is zero.
+          6. Report manifested_artifact_count and disk_artifact_count.
+
+          ## Calibration results
+          - Golden solve.sh: reward 1.0
+          - Bad / nop solution: reward < 1.0
+
+          ## How to run
+          \`\`\`bash
+          harbor run -p . --agent oracle
+          harbor run -p . --agent nop
+          \`\`\`" || echo "PR may already exist"
