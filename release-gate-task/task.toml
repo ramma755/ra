@@ -1,0 +1,32 @@
+artifacts = ["/app/release_gate.json"]
+
+[task]
+name = "dynamo/release-gate"
+description = "Audit a staged Python release bundle against its manifest and policy, emitting a gate report."
+
+[metadata]
+category = "build_dependency_and_release_management"
+subcategory = "release_artifacts"
+task_objective = ["validate", "analyze"]
+artifact_type = ["archive_or_compressed_artifact", "configuration_file", "generated_output_artifact"]
+expert_time_estimate_hours = 1.5
+model_tested = "GPT-5.4"
+agent_tested = "Terminus-2"
+difficulty_explanation = "The agent must treat manifest checksum verification as necessary but insufficient. The seed bundle's two manifested wheels both match their recorded SHA-256 digests, so a workflow that stops after hash validation reports success. A release engineer must also enforce policy.json (forbidden wheel tags, required sdist listing) and read embedded distribution metadata inside wheels and sdists. The sdist is present on disk but omitted from the manifest, and its PKG-INFO version disagrees with the declared release version — failures that leave no crash or checksum error."
+solution_explanation = "Load manifest.json and policy.json, index manifest entries by basename, and list files in /app/bundle/artifacts/. For each disk file not in the manifest emit UNMANIFESTED_ARTIFACT. For each manifest entry verify existence, sha256, and size_bytes; for wheels also parse the METADATA Version and the wheel tag (last three hyphen segments before .whl) against manifest version and forbidden_tag_substrings. If require_sdist_in_manifest is true and no manifest path ends with .tar.gz, emit SDIST_MISSING_FROM_MANIFEST. For every .tar.gz on disk, read PKG-INFO Version and compare to release_version. Sort blocking_issues by (code, path, detail), set gate_passed when the list is empty, and write the six-key JSON report."
+verification_explanation = "The verifier loads /app/release_gate.json and asserts the schema, sorted blocking_issues list (four expected issues: FORBIDDEN_WHEEL_TAG on the manylinux2014 wheel, SDIST_MISSING_FROM_MANIFEST, UNMANIFESTED_ARTIFACT and SDIST_METADATA_VERSION_MISMATCH on the sdist), gate_passed false, blocking_issue_count 4, manifested_artifact_count 2, and disk_artifact_count 3. A no-op or a report that only checksum-validates the manifest passes neither the issue list nor gate_passed."
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 900.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+mcp_servers = []
