@@ -14,7 +14,7 @@ Path convention: "path" is always the artifact basename (filename only) for file
 
 When the same root cause triggers multiple rules, emit every applicable issue — do not deduplicate. In particular, if a .tar.gz file is present on disk but absent from manifest.json while policy.require_sdist_in_manifest is true, you must emit both SDIST_MISSING_FROM_MANIFEST and UNMANIFESTED_ARTIFACT.
 
-Use packaging.version.Version for PEP 440 version comparisons. Normalize each Requires-Dist line with packaging.requirements.Requirement and compare sets across wheels as sorted tuples of "{name.lower()}=={specifier}" strings (omit "==" when the requirement has no specifier).
+Compare versions using PEP 440 rules (e.g. 2.0.9 and 2.0.9.post1 are not equal). Normalize each Requires-Dist line to lowercase package name plus "=={specifier}" when a version specifier is present (omit "==" when there is no specifier), then compare sorted sets across wheels.
 
 Emit a blocking issue for every rule violation below (the same file may trigger multiple issues). Use the exact detail template shown (substitute only the braced values):
 

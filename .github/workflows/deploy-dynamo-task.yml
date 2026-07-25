@@ -13,9 +13,9 @@ jobs:
       - name: Checkout ra (task source)
         uses: actions/checkout@v4
         with:
-          ref: cursor/dynamo-release-gate-5517
+          ref: main
 
-      - name: Clone Dynamo fork
+      - name: Clone Dynamo fork and deploy
         env:
           DYNAMO_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
         run: |
@@ -25,18 +25,46 @@ jobs:
           fi
           git clone "https://x-access-token:${DYNAMO_TOKEN}@github.com/ramma755/dynamo-342b8ef-build-dependency-and-release-management.git" fork
           cd fork
+
+          # Preserve pre-seeded category/subcategory from scaffold on main
+          git show main:task/task.toml > /tmp/scaffold-task.toml
+          CATEGORY_LINE=$(grep '^category' /tmp/scaffold-task.toml)
+          SUBCATEGORY_LINE=$(grep '^subcategory' /tmp/scaffold-task.toml)
+
           git checkout submission 2>/dev/null || git checkout -b submission
-          rsync -a --delete "$GITHUB_WORKSPACE/dynamo-submission/task/" task/
+
+          # Copy task files without deleting scaffold-only paths
+          cp -r "$GITHUB_WORKSPACE/dynamo-submission/task/"* task/
           chmod +x task/solution/solve.sh task/tests/test.sh
+
+          # Restore pre-seeded category/subcategory (do not edit per Dynamo rules)
+          python3 << 'PY'
+          import re
+          from pathlib import Path
+
+          scaffold = Path("/tmp/scaffold-task.toml").read_text().splitlines()
+          ours = Path("task/task.toml").read_text().splitlines()
+          cat = next(l for l in scaffold if l.startswith("category"))
+          sub = next(l for l in scaffold if l.startswith("subcategory"))
+          out = []
+          for line in ours:
+              if line.startswith("category"):
+                  out.append(cat)
+              elif line.startswith("subcategory"):
+                  out.append(sub)
+              else:
+                  out.append(line)
+          Path("task/task.toml").write_text("\n".join(out) + "\n")
+          PY
+
           git add -A
           git diff --cached --quiet && echo "No changes" && exit 0
           git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
-            commit -m "Task submission: dynamo/release-gate"
+            commit -m "Task submission: dynamo/release-gate (static-check fixes)"
           git push -u origin submission
 
       - name: Open pull request
         env:
-          DYNAMO_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
           GH_TOKEN: ${{ secrets.DYNAMO_DEPLOY_TOKEN }}
         run: |
           cd fork
@@ -50,8 +78,8 @@ jobs:
           ## Success criteria
           1. Write /app/release_gate.json with all six required keys.
           2. Copy release_version from manifest.json.
-          3. Emit blocking issues for every rule violation.
-          4. Sort blocking_issues by (code, path, detail).
+          3. Emit blocking issues for every rule violation (10 rules in instruction.md).
+          4. Sort blocking_issues by (code, path, detail) using exact detail templates.
           5. Set gate_passed true only when blocking_issue_count is zero.
           6. Report manifested_artifact_count and disk_artifact_count.
 
@@ -61,6 +89,7 @@ jobs:
 
           ## How to run
           \`\`\`bash
+          cd task
           harbor run -p . --agent oracle
           harbor run -p . --agent nop
-          \`\`\`" || echo "PR may already exist"
+          \`\`\`" || echo "PR already exists"
