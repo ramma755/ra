@@ -21,6 +21,17 @@ def _issue(code: str, path: str, detail: str) -> dict:
     return {"code": code, "path": path, "detail": detail}
 
 
+def _unfold_headers(text: str) -> str:
+    lines = text.splitlines()
+    unfolded: list[str] = []
+    for line in lines:
+        if line.startswith((" ", "\t")) and unfolded:
+            unfolded[-1] += " " + line.strip()
+        else:
+            unfolded.append(line)
+    return "\n".join(unfolded)
+
+
 def _wheel_tag(filename: str) -> str:
     stem = filename.removesuffix(".whl")
     parts = stem.split("-")
@@ -37,14 +48,27 @@ def _filename_version(filename: str) -> str:
     return parts[1]
 
 
-def _read_wheel_metadata(path: Path) -> dict[str, str | list[str]]:
+def _read_wheel_files(path: Path) -> tuple[str, str | None]:
     with zipfile.ZipFile(path) as zf:
         meta_name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
-        text = zf.read(meta_name).decode()
+        wheel_name = next(n for n in zf.namelist() if n.endswith(".dist-info/WHEEL"))
+        metadata = zf.read(meta_name).decode()
+        wheel_text = zf.read(wheel_name).decode()
+    internal_tag = None
+    for line in wheel_text.splitlines():
+        if line.startswith("Tag:"):
+            internal_tag = line.split(":", 1)[1].strip()
+            break
+    return metadata, internal_tag
+
+
+def _read_wheel_metadata(path: Path) -> dict[str, str | list[str]]:
+    metadata, _ = _read_wheel_files(path)
+    metadata = _unfold_headers(metadata)
     name = None
     version = None
     requires: list[str] = []
-    for line in text.splitlines():
+    for line in metadata.splitlines():
         if line.startswith("Name:"):
             name = line.split(":", 1)[1].strip()
         elif line.startswith("Version:"):
@@ -60,6 +84,7 @@ def _read_sdist_version(path: Path) -> str:
     with tarfile.open(path, "r:gz") as tf:
         pkg = next(m for m in tf.getmembers() if m.name.endswith("/PKG-INFO"))
         text = tf.extractfile(pkg).read().decode()
+    text = _unfold_headers(text)
     for line in text.splitlines():
         if line.startswith("Version:"):
             return line.split(":", 1)[1].strip()
@@ -93,6 +118,7 @@ def main():
     policy = _load_json(BUNDLE / "policy.json")
     manifest_by_name = {a["path"]: a for a in manifest["artifacts"]}
     disk_names = sorted(p.name for p in ARTIFACTS.iterdir() if p.is_file())
+    disk_set = set(disk_names)
     min_py = Version(policy["minimum_python_version"])
 
     issues: list[dict] = []
@@ -119,6 +145,15 @@ def main():
             )
             continue
 
+        if not _pep440_equal(entry["version"], manifest["release_version"]):
+            issues.append(
+                _issue(
+                    "MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH",
+                    name,
+                    f"manifest artifact version {entry['version']} is not PEP 440-equal to release_version {manifest['release_version']}",
+                )
+            )
+
         data = path.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
         if digest != entry["sha256"]:
@@ -135,6 +170,18 @@ def main():
             )
 
         if name.endswith(".whl"):
+            if policy.get("require_wheel_signature_sidecars"):
+                sidecar = f"{name}.asc"
+                if sidecar not in disk_set:
+                    issues.append(
+                        _issue(
+                            "MISSING_SIGNATURE_SIDECAR",
+                            name,
+                            f"missing required signature sidecar {sidecar}",
+                        )
+                    )
+
+            metadata_raw, internal_tag = _read_wheel_files(path)
             meta = _read_wheel_metadata(path)
             if not _pep440_equal(meta["version"], entry["version"]):
                 issues.append(
@@ -175,7 +222,17 @@ def main():
                     )
                 )
 
-            tag = _wheel_tag(name)
+            filename_tag = _wheel_tag(name)
+            if internal_tag is not None and internal_tag != filename_tag:
+                issues.append(
+                    _issue(
+                        "WHEEL_INTERNAL_TAG_MISMATCH",
+                        name,
+                        f"WHEEL file Tag {internal_tag} differs from filename wheel tag {filename_tag}",
+                    )
+                )
+
+            tag = filename_tag
             for forbidden in policy["forbidden_tag_substrings"]:
                 if forbidden in tag:
                     issues.append(

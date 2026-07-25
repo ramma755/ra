@@ -14,7 +14,7 @@ Path convention: `path` is always the artifact basename (filename only) for file
 
 When the same root cause triggers multiple rules, emit every applicable issue — do not deduplicate. In particular, if a `.tar.gz` file is present on disk but absent from `manifest.json` while `policy.require_sdist_in_manifest` is true, you must emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
 
-Compare versions using PEP 440 rules (e.g. `2.0.9` and `2.0.9.post1` are not equal). Normalize each `Requires-Dist` line to lowercase package name plus `=={specifier}` when a version specifier is present (omit `==` when there is no specifier), then compare sorted sets across wheels.
+Compare versions using PEP 440 rules (e.g. `2.0.9` and `2.0.9.post1` are not equal). When reading `METADATA` or `PKG-INFO`, unfold RFC 822 header continuation lines (a physical line that begins with one or more spaces appends to the previous header value). Normalize each unfolded `Requires-Dist` line to lowercase package name plus `=={specifier}` when a version specifier is present (omit `==` when there is no specifier), then compare sorted sets across wheels.
 
 Emit a blocking issue for every rule violation below (the same file may trigger multiple issues). Use the exact detail template shown (substitute only the braced values):
 
@@ -56,3 +56,12 @@ Emit a blocking issue for every rule violation below (the same file may trigger 
 
 13. `METADATA_NAME_MISMATCH` — for a manifested `.whl`, the PEP 503-normalized `METADATA` `Name` (lowercase; collapse each run of `.`, `-`, or `_` to a single `-`) is not equal to the PEP 503-normalized `manifest.json` `project` field.
     detail: `METADATA Name {metadata_name} normalizes to {normalized_metadata_name}, manifest project {project_name} normalizes to {normalized_project_name}`
+
+14. `MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH` — for a manifested artifact, that entry's `version` field is not PEP 440-equal to `manifest.json` `release_version`.
+    detail: `manifest artifact version {artifact_version} is not PEP 440-equal to release_version {release_version}`
+
+15. `WHEEL_INTERNAL_TAG_MISMATCH` — for a manifested `.whl`, the `Tag:` line in the embedded `WHEEL` file is not identical to the filename-derived wheel tag (the last three hyphen-separated segments before `.whl`).
+    detail: `WHEEL file Tag {internal_tag} differs from filename wheel tag {filename_tag}`
+
+16. `MISSING_SIGNATURE_SIDECAR` — when `policy.require_wheel_signature_sidecars` is true, a manifested `.whl` has no `{basename}.asc` file in `artifacts/`.
+    detail: `missing required signature sidecar {sidecar_basename}`

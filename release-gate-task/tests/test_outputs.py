@@ -10,14 +10,49 @@ EXPECTED_ISSUES = [
         "detail": "wheel tag contains forbidden substring 'manylinux2014'",
     },
     {
+        "code": "MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "manifest artifact version 2.0.9.dev0 is not PEP 440-equal to release_version 2.0.9",
+    },
+    {
+        "code": "MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "manifest artifact version 2.0.9.post1 is not PEP 440-equal to release_version 2.0.9",
+    },
+    {
         "code": "METADATA_NAME_MISMATCH",
         "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
         "detail": "METADATA Name Widget_Lib normalizes to widget-lib, manifest project widgetlib normalizes to widgetlib",
     },
     {
+        "code": "METADATA_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "METADATA Version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.dev0",
+    },
+    {
+        "code": "MISSING_SIGNATURE_SIDECAR",
+        "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+        "detail": "missing required signature sidecar widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl.asc",
+    },
+    {
+        "code": "MISSING_SIGNATURE_SIDECAR",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "missing required signature sidecar widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl.asc",
+    },
+    {
+        "code": "MISSING_SIGNATURE_SIDECAR",
+        "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+        "detail": "missing required signature sidecar widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl.asc",
+    },
+    {
         "code": "PYTHON_TAG_BELOW_MINIMUM",
         "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
         "detail": "wheel tag implies Python 3.10, below policy minimum_python_version 3.11",
+    },
+    {
+        "code": "REQUIRES_DIST_MISMATCH",
+        "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+        "detail": "Requires-Dist set differs from widgetlib-2.0.9-py3-none-any.whl",
     },
     {
         "code": "REQUIRES_DIST_MISMATCH",
@@ -36,6 +71,11 @@ EXPECTED_ISSUES = [
     },
     {
         "code": "UNMANIFESTED_ARTIFACT",
+        "path": "SHA256SUMS",
+        "detail": "file exists under artifacts/ but is not listed in manifest.json",
+    },
+    {
+        "code": "UNMANIFESTED_ARTIFACT",
         "path": "widgetlib-2.0.9-py3-none-any.whl.asc",
         "detail": "file exists under artifacts/ but is not listed in manifest.json",
     },
@@ -46,8 +86,18 @@ EXPECTED_ISSUES = [
     },
     {
         "code": "WHEEL_FILENAME_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "wheel filename version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.dev0",
+    },
+    {
+        "code": "WHEEL_FILENAME_VERSION_MISMATCH",
         "path": "widgetlib-2.0.9-py3-none-any.whl",
         "detail": "wheel filename version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.post1",
+    },
+    {
+        "code": "WHEEL_INTERNAL_TAG_MISMATCH",
+        "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+        "detail": "WHEEL file Tag cp310-cp310-manylinux_2_17_x86_64 differs from filename wheel tag cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64",
     },
     {
         "code": "WHEEL_RELEASE_VERSION_MISMATCH",
@@ -95,9 +145,9 @@ def test_gate_passed_is_false():
 
 
 def test_blocking_issue_count():
-    """blocking_issue_count must equal the number of blocking issues (10)."""
+    """blocking_issue_count must equal the number of blocking issues (20)."""
     data = _load()
-    assert data["blocking_issue_count"] == 10
+    assert data["blocking_issue_count"] == 20
     assert data["blocking_issue_count"] == len(data["blocking_issues"])
 
 
@@ -116,10 +166,10 @@ def test_sdist_double_emission_required():
 
 
 def test_manifested_artifact_count():
-    """manifested_artifact_count must equal manifest.json artifact entries (3)."""
-    assert _load()["manifested_artifact_count"] == 3
+    """manifested_artifact_count must equal manifest.json artifact entries (4)."""
+    assert _load()["manifested_artifact_count"] == 4
 
 
 def test_disk_artifact_count():
-    """disk_artifact_count must equal files under /app/bundle/artifacts/ (5)."""
-    assert _load()["disk_artifact_count"] == 5
+    """disk_artifact_count must equal files under /app/bundle/artifacts/ (7)."""
+    assert _load()["disk_artifact_count"] == 7
