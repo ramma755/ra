@@ -3,32 +3,39 @@
   "project": "widgetlib",
   "artifacts": [
     {
+      "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "version": "2.0.09",
+      "sha256": "da39b18f2eb3ca2c31e9a44988bd6f68db9a47e62bf81489da10e3faad7d2820",
+      "size_bytes": 872
+    },
+    {
       "path": "widgetlib-2.0.9-py3-none-any.whl",
       "kind": "wheel",
       "version": "2.0.9.post1",
-      "sha256": "882b64b9e96e8eba89fbd3529841da9ea535438e82caad84baba5cb30fc60554",
-      "size_bytes": 828
+      "sha256": "98675ac27b15f005c259ea550c9aa6dd5423f731cc3c18eb6755cd5fded5151b",
+      "size_bytes": 1487
     },
     {
       "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "e1818ee144e24809f5b7a65953a974fc621cbd701ec2f2eed72598e17abcb64c",
+      "sha256": "57d1ee0b028e442eb04782e4cdf0612344d4395e228bfccddd502f141511e8e8",
       "size_bytes": 796
     },
     {
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9.dev0",
-      "sha256": "5c145e45fadc199a1b1297e487dc22241424ac484ed522a634c43107ef825242",
-      "size_bytes": 891
+      "sha256": "dca9de39e240a4dbd201dac90041985362e37e3906e434b7b4f63d87247a13b0",
+      "size_bytes": 921
     },
     {
-      "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+      "path": "widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "14d64553652bc23caa1df2ea64b344fe8eadd6dcae1a665e6748db01de9ba387",
-      "size_bytes": 865
+      "sha256": "bcb6659db13b028876c6263a41d0e7a1f419697487464fca453a71b757c29f3e",
+      "size_bytes": 832
     }
   ]
 }

@@ -45,19 +45,29 @@ EXPECTED_ISSUES = [
         "detail": "missing required signature sidecar widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl.asc",
     },
     {
+        "code": "MISSING_SIGNATURE_SIDECAR",
+        "path": "widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl",
+        "detail": "missing required signature sidecar widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl.asc",
+    },
+    {
         "code": "PYTHON_TAG_BELOW_MINIMUM",
         "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
         "detail": "wheel tag implies Python 3.10, below policy minimum_python_version 3.11",
     },
     {
+        "code": "PYTHON_TAG_BELOW_MINIMUM",
+        "path": "widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl",
+        "detail": "wheel tag implies Python 3.9, below policy minimum_python_version 3.11",
+    },
+    {
         "code": "REQUIRES_DIST_MISMATCH",
         "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
-        "detail": "Requires-Dist set differs from widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "Requires-Dist set differs from widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
     },
     {
         "code": "REQUIRES_DIST_MISMATCH",
         "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
-        "detail": "Requires-Dist set differs from widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "Requires-Dist set differs from widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
     },
     {
         "code": "SDIST_METADATA_VERSION_MISMATCH",
@@ -71,12 +81,12 @@ EXPECTED_ISSUES = [
     },
     {
         "code": "UNMANIFESTED_ARTIFACT",
-        "path": "SHA256SUMS",
+        "path": ".buildmeta",
         "detail": "file exists under artifacts/ but is not listed in manifest.json",
     },
     {
         "code": "UNMANIFESTED_ARTIFACT",
-        "path": "widgetlib-2.0.9-py3-none-any.whl.asc",
+        "path": "SHA256SUMS",
         "detail": "file exists under artifacts/ but is not listed in manifest.json",
     },
     {
@@ -145,9 +155,9 @@ def test_gate_passed_is_false():
 
 
 def test_blocking_issue_count():
-    """blocking_issue_count must equal the number of blocking issues (20)."""
+    """blocking_issue_count must equal the number of blocking issues (22)."""
     data = _load()
-    assert data["blocking_issue_count"] == 20
+    assert data["blocking_issue_count"] == 22
     assert data["blocking_issue_count"] == len(data["blocking_issues"])
 
 
@@ -165,11 +175,20 @@ def test_sdist_double_emission_required():
     assert "UNMANIFESTED_ARTIFACT" in codes
 
 
+def test_asc_sidecar_exempt_from_unmanifested():
+    """*.asc files exempted by policy must not appear as UNMANIFESTED_ARTIFACT."""
+    issues = _load()["blocking_issues"]
+    asc_unmanifested = [
+        i for i in issues if i["code"] == "UNMANIFESTED_ARTIFACT" and i["path"].endswith(".asc")
+    ]
+    assert asc_unmanifested == []
+
+
 def test_manifested_artifact_count():
-    """manifested_artifact_count must equal manifest.json artifact entries (4)."""
-    assert _load()["manifested_artifact_count"] == 4
+    """manifested_artifact_count must equal manifest.json artifact entries (5)."""
+    assert _load()["manifested_artifact_count"] == 5
 
 
 def test_disk_artifact_count():
-    """disk_artifact_count must equal files under /app/bundle/artifacts/ (7)."""
-    assert _load()["disk_artifact_count"] == 7
+    """disk_artifact_count must equal files under /app/bundle/artifacts/ (9)."""
+    assert _load()["disk_artifact_count"] == 9

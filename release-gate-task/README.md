@@ -4,7 +4,7 @@ Audit a staged Python release bundle against `manifest.json`, `policy.json`, and
 
 ## Trap design
 
-All four manifested wheels pass SHA-256 verification. Failures require RFC 822 METADATA unfolding, PEP 440 comparisons against manifest entry versions and `release_version`, PEP 427 filename-version parsing, embedded `WHEEL` Tag vs filename tag comparison, PEP 503 name normalization, signature sidecar policy, Requires-Dist set matching (reference wheel uses a folded certifi line), cp310 tag below minimum Python 3.11, forbidden `manylinux2014` tag, sdist manifest/metadata issues, and unmanifested decoys (`SHA256SUMS`, orphan `.asc`).
+Five manifested wheels pass SHA-256. Failures need RFC 822 unfolding, `{project}-{manifest_version}.dist-info/METADATA` selection (decoy dist-info trees present), PEP 440 compares (`2.0.09` equals `2.0.9`), policy-exempt `*.asc` sidecars, ignoring `SHA256SUMS`, dotfile `.buildmeta`, cp312 as Requires-Dist reference (not universal), internal WHEEL Tag mismatch, cp39 abi3 below Python 3.11, and sdist manifest gaps.
 
 ## Local verification
 

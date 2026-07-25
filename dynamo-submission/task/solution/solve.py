@@ -1,3 +1,4 @@
+import fnmatch
 import hashlib
 import json
 import re
@@ -32,6 +33,13 @@ def _unfold_headers(text: str) -> str:
     return "\n".join(unfolded)
 
 
+def _is_exempt_unmanifested(name: str, policy: dict) -> bool:
+    for pattern in policy.get("unmanifested_exempt_globs", []):
+        if fnmatch.fnmatch(name, pattern):
+            return True
+    return False
+
+
 def _wheel_tag(filename: str) -> str:
     stem = filename.removesuffix(".whl")
     parts = stem.split("-")
@@ -48,23 +56,23 @@ def _filename_version(filename: str) -> str:
     return parts[1]
 
 
-def _read_wheel_files(path: Path) -> tuple[str, str | None]:
-    with zipfile.ZipFile(path) as zf:
-        meta_name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
-        wheel_name = next(n for n in zf.namelist() if n.endswith(".dist-info/WHEEL"))
-        metadata = zf.read(meta_name).decode()
-        wheel_text = zf.read(wheel_name).decode()
+def _metadata_path(project: str, manifest_version: str) -> str:
+    return f"{project}-{manifest_version}.dist-info/METADATA"
+
+
+def _read_wheel_metadata(path: Path, project: str, manifest_version: str) -> tuple[dict[str, str | list[str]], str | None]:
+    meta_rel = _metadata_path(project, manifest_version)
     internal_tag = None
-    for line in wheel_text.splitlines():
-        if line.startswith("Tag:"):
-            internal_tag = line.split(":", 1)[1].strip()
-            break
-    return metadata, internal_tag
-
-
-def _read_wheel_metadata(path: Path) -> dict[str, str | list[str]]:
-    metadata, _ = _read_wheel_files(path)
-    metadata = _unfold_headers(metadata)
+    with zipfile.ZipFile(path) as zf:
+        if meta_rel not in zf.namelist():
+            raise ValueError(f"missing {meta_rel} in {path}")
+        metadata = _unfold_headers(zf.read(meta_rel).decode())
+        wheel_rel = meta_rel.replace("/METADATA", "/WHEEL")
+        if wheel_rel in zf.namelist():
+            for line in zf.read(wheel_rel).decode().splitlines():
+                if line.startswith("Tag:"):
+                    internal_tag = line.split(":", 1)[1].strip()
+                    break
     name = None
     version = None
     requires: list[str] = []
@@ -77,7 +85,7 @@ def _read_wheel_metadata(path: Path) -> dict[str, str | list[str]]:
             requires.append(line.split(":", 1)[1].strip())
     if version is None:
         raise ValueError(f"no Version in {path}")
-    return {"name": name or "", "version": version, "requires_dist": requires}
+    return {"name": name or "", "version": version, "requires_dist": requires}, internal_tag
 
 
 def _read_sdist_version(path: Path) -> str:
@@ -120,18 +128,22 @@ def main():
     disk_names = sorted(p.name for p in ARTIFACTS.iterdir() if p.is_file())
     disk_set = set(disk_names)
     min_py = Version(policy["minimum_python_version"])
+    project = manifest["project"]
 
     issues: list[dict] = []
 
     for name in disk_names:
-        if name not in manifest_by_name:
-            issues.append(
-                _issue(
-                    "UNMANIFESTED_ARTIFACT",
-                    name,
-                    "file exists under artifacts/ but is not listed in manifest.json",
-                )
+        if name in manifest_by_name:
+            continue
+        if _is_exempt_unmanifested(name, policy):
+            continue
+        issues.append(
+            _issue(
+                "UNMANIFESTED_ARTIFACT",
+                name,
+                "file exists under artifacts/ but is not listed in manifest.json",
             )
+        )
 
     reference_requires: tuple[str, ...] | None = None
     reference_wheel: str | None = None
@@ -181,9 +193,8 @@ def main():
                         )
                     )
 
-            metadata_raw, internal_tag = _read_wheel_files(path)
-            meta = _read_wheel_metadata(path)
-            if not _pep440_equal(meta["version"], entry["version"]):
+            meta, internal_tag = _read_wheel_metadata(path, project, entry["version"])
+            if not _pep440_equal(str(meta["version"]), entry["version"]):
                 issues.append(
                     _issue(
                         "METADATA_VERSION_MISMATCH",
@@ -191,7 +202,7 @@ def main():
                         f"METADATA Version {meta['version']} is not PEP 440-equal to manifest version {entry['version']}",
                     )
                 )
-            if not _pep440_equal(meta["version"], manifest["release_version"]):
+            if not _pep440_equal(str(meta["version"]), manifest["release_version"]):
                 issues.append(
                     _issue(
                         "WHEEL_RELEASE_VERSION_MISMATCH",
@@ -212,13 +223,13 @@ def main():
 
             meta_name = str(meta.get("name", ""))
             normalized_meta = canonicalize_name(meta_name) if meta_name else ""
-            normalized_project = canonicalize_name(manifest["project"])
+            normalized_project = canonicalize_name(project)
             if meta_name and normalized_meta != normalized_project:
                 issues.append(
                     _issue(
                         "METADATA_NAME_MISMATCH",
                         name,
-                        f"METADATA Name {meta_name} normalizes to {normalized_meta}, manifest project {manifest['project']} normalizes to {normalized_project}",
+                        f"METADATA Name {meta_name} normalizes to {normalized_meta}, manifest project {project} normalizes to {normalized_project}",
                     )
                 )
 
@@ -255,7 +266,7 @@ def main():
                 )
 
             if policy.get("requires_dist_must_match_across_wheels"):
-                req_set = _normalized_requires(meta["requires_dist"])
+                req_set = _normalized_requires(list(meta["requires_dist"]))
                 if reference_requires is None:
                     reference_requires = req_set
                     reference_wheel = name
