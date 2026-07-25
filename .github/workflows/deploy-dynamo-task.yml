@@ -2,6 +2,11 @@ name: Deploy Dynamo Task to Fork
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'dynamo-submission/task/**'
+      - '.github/workflows/deploy-dynamo-task.yml'
 
 permissions:
   contents: read
