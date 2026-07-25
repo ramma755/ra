@@ -5,7 +5,7 @@
     {
       "path": "widgetlib-2.0.9-py3-none-any.whl",
       "kind": "wheel",
-      "version": "2.0.9",
+      "version": "2.0.9.post1",
       "sha256": "1d4d2ba832e78dc2ba627ffcb6370c9bd15a722d2783e44cd7de80f857e19765",
       "size_bytes": 878
     },
@@ -20,8 +20,8 @@
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "b423d657078ffb6b3e3122fa6b1e03e03378fac4e69085b1a4fd08532de337ec",
-      "size_bytes": 938
+      "sha256": "d15d5eb153e8915eac92512a8f8a6427682fae5d30fc924e305cf1a4aae65155",
+      "size_bytes": 942
     }
   ]
 }

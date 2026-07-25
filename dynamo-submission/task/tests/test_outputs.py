@@ -10,9 +10,9 @@ EXPECTED_ISSUES = [
         "detail": "wheel tag contains forbidden substring 'manylinux2014'",
     },
     {
-        "code": "METADATA_VERSION_MISMATCH",
-        "path": "widgetlib-2.0.9-py3-none-any.whl",
-        "detail": "METADATA Version 2.0.9.post1 is not PEP 440-equal to manifest version 2.0.9",
+        "code": "METADATA_NAME_MISMATCH",
+        "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
+        "detail": "METADATA Name Widget_Lib normalizes to widget-lib, manifest project widgetlib normalizes to widgetlib",
     },
     {
         "code": "PYTHON_TAG_BELOW_MINIMUM",
@@ -36,8 +36,23 @@ EXPECTED_ISSUES = [
     },
     {
         "code": "UNMANIFESTED_ARTIFACT",
+        "path": "widgetlib-2.0.9-py3-none-any.whl.asc",
+        "detail": "file exists under artifacts/ but is not listed in manifest.json",
+    },
+    {
+        "code": "UNMANIFESTED_ARTIFACT",
         "path": "widgetlib-2.0.9.tar.gz",
         "detail": "file exists under artifacts/ but is not listed in manifest.json",
+    },
+    {
+        "code": "WHEEL_FILENAME_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "wheel filename version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.post1",
+    },
+    {
+        "code": "WHEEL_RELEASE_VERSION_MISMATCH",
+        "path": "widgetlib-2.0.9-py3-none-any.whl",
+        "detail": "METADATA Version 2.0.9.post1 is not PEP 440-equal to release_version 2.0.9",
     },
 ]
 
@@ -80,9 +95,9 @@ def test_gate_passed_is_false():
 
 
 def test_blocking_issue_count():
-    """blocking_issue_count must equal the number of blocking issues (7)."""
+    """blocking_issue_count must equal the number of blocking issues (10)."""
     data = _load()
-    assert data["blocking_issue_count"] == 7
+    assert data["blocking_issue_count"] == 10
     assert data["blocking_issue_count"] == len(data["blocking_issues"])
 
 
@@ -106,5 +121,5 @@ def test_manifested_artifact_count():
 
 
 def test_disk_artifact_count():
-    """disk_artifact_count must equal files under /app/bundle/artifacts/ (4)."""
-    assert _load()["disk_artifact_count"] == 4
+    """disk_artifact_count must equal files under /app/bundle/artifacts/ (5)."""
+    assert _load()["disk_artifact_count"] == 5

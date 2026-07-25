@@ -47,3 +47,12 @@ Emit a blocking issue for every rule violation below (the same file may trigger 
 
 10. `SDIST_METADATA_VERSION_MISMATCH` — for every `.tar.gz` under `artifacts/`, `PKG-INFO` `Version` is not PEP 440-equal to `manifest.json` `release_version`.
     detail: `PKG-INFO Version {pkginfo_version} is not PEP 440-equal to release_version {release_version}`
+
+11. `WHEEL_RELEASE_VERSION_MISMATCH` — for a manifested `.whl`, `METADATA` `Version` is not PEP 440-equal to `manifest.json` `release_version`.
+    detail: `METADATA Version {metadata_version} is not PEP 440-equal to release_version {release_version}`
+
+12. `WHEEL_FILENAME_VERSION_MISMATCH` — for a manifested `.whl`, the version segment in the filename (the second hyphen-separated field of the basename per PEP 427) is not PEP 440-equal to that manifest entry's `version` field.
+    detail: `wheel filename version {filename_version} is not PEP 440-equal to manifest version {manifest_version}`
+
+13. `METADATA_NAME_MISMATCH` — for a manifested `.whl`, the PEP 503-normalized `METADATA` `Name` (lowercase; collapse each run of `.`, `-`, or `_` to a single `-`) is not equal to the PEP 503-normalized `manifest.json` `project` field.
+    detail: `METADATA Name {metadata_name} normalizes to {normalized_metadata_name}, manifest project {project_name} normalizes to {normalized_project_name}`

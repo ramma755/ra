@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 BUNDLE = Path("/app/bundle")
@@ -28,20 +29,31 @@ def _wheel_tag(filename: str) -> str:
     return "-".join(parts[-3:])
 
 
+def _filename_version(filename: str) -> str:
+    stem = filename.removesuffix(".whl")
+    parts = stem.split("-")
+    if len(parts) < 2:
+        return ""
+    return parts[1]
+
+
 def _read_wheel_metadata(path: Path) -> dict[str, str | list[str]]:
     with zipfile.ZipFile(path) as zf:
         meta_name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
         text = zf.read(meta_name).decode()
+    name = None
     version = None
     requires: list[str] = []
     for line in text.splitlines():
-        if line.startswith("Version:"):
+        if line.startswith("Name:"):
+            name = line.split(":", 1)[1].strip()
+        elif line.startswith("Version:"):
             version = line.split(":", 1)[1].strip()
         elif line.startswith("Requires-Dist:"):
             requires.append(line.split(":", 1)[1].strip())
     if version is None:
         raise ValueError(f"no Version in {path}")
-    return {"version": version, "requires_dist": requires}
+    return {"name": name or "", "version": version, "requires_dist": requires}
 
 
 def _read_sdist_version(path: Path) -> str:
@@ -130,6 +142,36 @@ def main():
                         "METADATA_VERSION_MISMATCH",
                         name,
                         f"METADATA Version {meta['version']} is not PEP 440-equal to manifest version {entry['version']}",
+                    )
+                )
+            if not _pep440_equal(meta["version"], manifest["release_version"]):
+                issues.append(
+                    _issue(
+                        "WHEEL_RELEASE_VERSION_MISMATCH",
+                        name,
+                        f"METADATA Version {meta['version']} is not PEP 440-equal to release_version {manifest['release_version']}",
+                    )
+                )
+
+            filename_version = _filename_version(name)
+            if filename_version and not _pep440_equal(filename_version, entry["version"]):
+                issues.append(
+                    _issue(
+                        "WHEEL_FILENAME_VERSION_MISMATCH",
+                        name,
+                        f"wheel filename version {filename_version} is not PEP 440-equal to manifest version {entry['version']}",
+                    )
+                )
+
+            meta_name = str(meta.get("name", ""))
+            normalized_meta = canonicalize_name(meta_name) if meta_name else ""
+            normalized_project = canonicalize_name(manifest["project"])
+            if meta_name and normalized_meta != normalized_project:
+                issues.append(
+                    _issue(
+                        "METADATA_NAME_MISMATCH",
+                        name,
+                        f"METADATA Name {meta_name} normalizes to {normalized_meta}, manifest project {manifest['project']} normalizes to {normalized_project}",
                     )
                 )
 

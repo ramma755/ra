@@ -78,7 +78,7 @@ jobs:
           ## Success criteria
           1. Write /app/release_gate.json with all six required keys.
           2. Copy release_version from manifest.json.
-          3. Emit blocking issues for every rule violation (10 rules in instruction.md).
+          3. Emit blocking issues for every rule violation (13 rules in instruction.md).
           4. Sort blocking_issues by (code, path, detail) using exact detail templates.
           5. Set gate_passed true only when blocking_issue_count is zero.
           6. Report manifested_artifact_count and disk_artifact_count.
