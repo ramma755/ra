@@ -1,0 +1,6 @@
+# Keep build context minimal; only data/ is COPYed into the image.
+Dockerfile
+.dockerignore
+**/__pycache__
+**/*.pyc
+**/.DS_Store
