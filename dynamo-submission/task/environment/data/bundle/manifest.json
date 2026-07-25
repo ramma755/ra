@@ -6,36 +6,43 @@
       "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.09",
-      "sha256": "da39b18f2eb3ca2c31e9a44988bd6f68db9a47e62bf81489da10e3faad7d2820",
-      "size_bytes": 872
+      "sha256": "8fe61a2c015950e55d024f9fad850103d1a175dd36e15cb9062201b813208e46",
+      "size_bytes": 1538
     },
     {
       "path": "widgetlib-2.0.9-py3-none-any.whl",
       "kind": "wheel",
       "version": "2.0.9.post1",
-      "sha256": "98675ac27b15f005c259ea550c9aa6dd5423f731cc3c18eb6755cd5fded5151b",
+      "sha256": "eca8606b34c8a8917897279d6db748ddb4431d56f9088ecf305aa084ad80f022",
       "size_bytes": 1487
     },
     {
       "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "57d1ee0b028e442eb04782e4cdf0612344d4395e228bfccddd502f141511e8e8",
-      "size_bytes": 796
+      "sha256": "ecfcecb11b0a49f648eed498d6138560c6ad58d8552ea2782f6c4e6a26ff5a71",
+      "size_bytes": 1440
     },
     {
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9.dev0",
-      "sha256": "dca9de39e240a4dbd201dac90041985362e37e3906e434b7b4f63d87247a13b0",
+      "sha256": "a65197a79999e5b31d840f82a4cbbce20de90a45817feeac49a494765f0825d7",
       "size_bytes": 921
     },
     {
       "path": "widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "bcb6659db13b028876c6263a41d0e7a1f419697487464fca453a71b757c29f3e",
+      "sha256": "e0de8ee004f7ce3408a4c050a2d89120553c74553f470f450946638f5bea1e89",
       "size_bytes": 832
+    },
+    {
+      "path": "widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "version": "2.0.9",
+      "sha256": "1cc1f01a7f114e387eac12da14c0710d00747b0289d31b9874c5f1845db925a4",
+      "size_bytes": 865
     }
   ]
 }

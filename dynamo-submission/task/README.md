@@ -4,7 +4,7 @@ Audit a staged Python release bundle against `manifest.json`, `policy.json`, and
 
 ## Trap design
 
-Five manifested wheels pass SHA-256. Failures need RFC 822 unfolding, `{project}-{manifest_version}.dist-info/METADATA` selection (decoy dist-info trees present), PEP 440 compares (`2.0.09` equals `2.0.9`), policy-exempt `*.asc` sidecars, ignoring `SHA256SUMS`, dotfile `.buildmeta`, cp312 as Requires-Dist reference (not universal), internal WHEEL Tag mismatch, cp39 abi3 below Python 3.11, and sdist manifest gaps.
+Six manifested wheels pass SHA-256. Agents must select the correct dist-info METADATA path, enumerate stale dist-info and stale PKG-INFO members (not only read primary metadata), honor exempt `*.asc` files, ignore `SHA256SUMS`, count `.buildmeta`, use cp312 as the Requires-Dist reference, and apply eighteen rules for 27 blocking issues.
 
 ## Local verification
 

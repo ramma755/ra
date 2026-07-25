@@ -60,23 +60,12 @@ def _metadata_path(project: str, manifest_version: str) -> str:
     return f"{project}-{manifest_version}.dist-info/METADATA"
 
 
-def _read_wheel_metadata(path: Path, project: str, manifest_version: str) -> tuple[dict[str, str | list[str]], str | None]:
-    meta_rel = _metadata_path(project, manifest_version)
-    internal_tag = None
-    with zipfile.ZipFile(path) as zf:
-        if meta_rel not in zf.namelist():
-            raise ValueError(f"missing {meta_rel} in {path}")
-        metadata = _unfold_headers(zf.read(meta_rel).decode())
-        wheel_rel = meta_rel.replace("/METADATA", "/WHEEL")
-        if wheel_rel in zf.namelist():
-            for line in zf.read(wheel_rel).decode().splitlines():
-                if line.startswith("Tag:"):
-                    internal_tag = line.split(":", 1)[1].strip()
-                    break
+def _parse_metadata_fields(text: str) -> dict[str, str | list[str]]:
+    text = _unfold_headers(text)
     name = None
     version = None
     requires: list[str] = []
-    for line in metadata.splitlines():
+    for line in text.splitlines():
         if line.startswith("Name:"):
             name = line.split(":", 1)[1].strip()
         elif line.startswith("Version:"):
@@ -84,19 +73,61 @@ def _read_wheel_metadata(path: Path, project: str, manifest_version: str) -> tup
         elif line.startswith("Requires-Dist:"):
             requires.append(line.split(":", 1)[1].strip())
     if version is None:
-        raise ValueError(f"no Version in {path}")
-    return {"name": name or "", "version": version, "requires_dist": requires}, internal_tag
+        raise ValueError("no Version in METADATA/PKG-INFO")
+    return {"name": name or "", "version": version, "requires_dist": requires}
 
 
-def _read_sdist_version(path: Path) -> str:
+def _read_wheel_metadata(path: Path, project: str, manifest_version: str) -> tuple[dict[str, str | list[str]], str | None]:
+    meta_rel = _metadata_path(project, manifest_version)
+    internal_tag = None
+    with zipfile.ZipFile(path) as zf:
+        if meta_rel not in zf.namelist():
+            raise ValueError(f"missing {meta_rel} in {path}")
+        meta = _parse_metadata_fields(zf.read(meta_rel).decode())
+        wheel_rel = meta_rel.replace("/METADATA", "/WHEEL")
+        if wheel_rel in zf.namelist():
+            for line in zf.read(wheel_rel).decode().splitlines():
+                if line.startswith("Tag:"):
+                    internal_tag = line.split(":", 1)[1].strip()
+                    break
+    return meta, internal_tag
+
+
+def _stale_wheel_dist_infos(path: Path, project: str, manifest_version: str) -> list[tuple[str, str]]:
+    selected = _metadata_path(project, manifest_version)
+    stale: list[tuple[str, str]] = []
+    with zipfile.ZipFile(path) as zf:
+        for name in zf.namelist():
+            if not name.endswith(".dist-info/METADATA") or name == selected:
+                continue
+            fields = _parse_metadata_fields(zf.read(name).decode())
+            dist_name = name.split("/")[0].removesuffix(".dist-info")
+            stale.append((dist_name, str(fields["version"])))
+    return stale
+
+
+def _primary_pkginfo_path(archive_name: str) -> str:
+    return f"{archive_name.removesuffix('.tar.gz')}/PKG-INFO"
+
+
+def _read_primary_sdist_version(path: Path) -> str:
+    primary = _primary_pkginfo_path(path.name)
     with tarfile.open(path, "r:gz") as tf:
-        pkg = next(m for m in tf.getmembers() if m.name.endswith("/PKG-INFO"))
-        text = tf.extractfile(pkg).read().decode()
-    text = _unfold_headers(text)
-    for line in text.splitlines():
-        if line.startswith("Version:"):
-            return line.split(":", 1)[1].strip()
-    raise ValueError(f"no Version in {path}")
+        pkg = next(m for m in tf.getmembers() if m.name == primary)
+        fields = _parse_metadata_fields(tf.extractfile(pkg).read().decode())
+    return str(fields["version"])
+
+
+def _stale_sdist_pkginfos(path: Path) -> list[tuple[str, str]]:
+    primary = _primary_pkginfo_path(path.name)
+    stale: list[tuple[str, str]] = []
+    with tarfile.open(path, "r:gz") as tf:
+        for member in tf.getmembers():
+            if not member.name.endswith("/PKG-INFO") or member.name == primary:
+                continue
+            fields = _parse_metadata_fields(tf.extractfile(member).read().decode())
+            stale.append((member.name, str(fields["version"])))
+    return stale
 
 
 def _pep440_equal(a: str, b: str) -> bool:
@@ -279,6 +310,16 @@ def main():
                         )
                     )
 
+            for dist_info_name, stale_version in _stale_wheel_dist_infos(path, project, entry["version"]):
+                if not _pep440_equal(stale_version, entry["version"]):
+                    issues.append(
+                        _issue(
+                            "STALE_DIST_INFO_VERSION_MISMATCH",
+                            name,
+                            f"stale dist-info {dist_info_name} Version {stale_version} is not PEP 440-equal to manifest version {entry['version']}",
+                        )
+                    )
+
     if policy.get("require_sdist_in_manifest"):
         if not any(a["path"].endswith(".tar.gz") for a in manifest["artifacts"]):
             issues.append(
@@ -292,7 +333,8 @@ def main():
     for name in disk_names:
         if not name.endswith(".tar.gz"):
             continue
-        meta_ver = _read_sdist_version(ARTIFACTS / name)
+        sdist_path = ARTIFACTS / name
+        meta_ver = _read_primary_sdist_version(sdist_path)
         expected = manifest["release_version"]
         if not _pep440_equal(meta_ver, expected):
             issues.append(
@@ -302,6 +344,15 @@ def main():
                     f"PKG-INFO Version {meta_ver} is not PEP 440-equal to release_version {expected}",
                 )
             )
+        for member_path, stale_ver in _stale_sdist_pkginfos(sdist_path):
+            if not _pep440_equal(stale_ver, expected):
+                issues.append(
+                    _issue(
+                        "STALE_PKGINFO_VERSION_MISMATCH",
+                        name,
+                        f"stale PKG-INFO at {member_path} Version {stale_ver} is not PEP 440-equal to release_version {expected}",
+                    )
+                )
 
     issues.sort(key=lambda i: (i["code"], i["path"], i["detail"]))
     out = {

@@ -12,15 +12,15 @@ artifact_type = ["archive_or_compressed_artifact", "configuration_file", "genera
 expert_time_estimate_hours = 3.5
 model_tested = "GPT-5.4"
 agent_tested = "Terminus-2"
-difficulty_explanation = "A release engineer gates a synthetic but realistic Python fixture bundle before PyPI publish. All five manifested wheels pass SHA-256 checks. Correct gating requires RFC 822 unfolding, selecting the `{project}-{manifest_version}.dist-info/METADATA` path while ignoring decoy dist-info trees, PEP 440 (not string) version compares including `2.0.09` vs `2.0.9`, policy-exempt `*.asc` sidecars, ignoring stale `SHA256SUMS`, counting dotfiles like `.buildmeta`, cp312 (not universal) as the Requires-Dist reference wheel, embedded WHEEL Tag vs filename tag, and signature sidecar policy. Models that grab the first dist-info, flag exempt `.asc` files, trust SHA256SUMS, or string-compare `2.0.09` produce wrong issue sets."
-solution_explanation = "Load manifest and policy, enumerate direct artifact files, skip unmanifested exempt globs, hash bytes per manifest entry, and for each wheel read only `{project}-{entry.version}.dist-info/METADATA` plus its sibling WHEEL file. Unfold headers, strip env markers from Requires-Dist, compare normalized sets to the first manifest wheel (cp312), apply all version/name/tag/sidecar rules, emit sdist double issues, sort by (code, path, detail)."
-verification_explanation = "Exact-match on gate_passed false, blocking_issue_count 22, manifested_artifact_count 5, disk_artifact_count 9, sorted blocking_issues list, explicit test that no UNMANIFESTED_ARTIFACT targets `.asc` files, and sdist double-emission."
+difficulty_explanation = "A release engineer gates a synthetic fixture bundle before PyPI publish. Checksums pass on all six wheels. Beyond prior traps (dist-info path selection, exempt .asc, SHA256SUMS decoy, cp312 reference wheel), agents must also scan non-selected dist-info trees and non-primary PKG-INFO members — ignoring decoys after reading the primary metadata misses STALE_DIST_INFO_VERSION_MISMATCH and STALE_PKGINFO_VERSION_MISMATCH issues. Twenty-seven exact issues across eighteen rules; PEP 440 compares and primary-vs-stale enumeration are the main failure modes."
+solution_explanation = "Load manifest and policy, enumerate artifact files, apply unmanifested exemptions, hash manifest entries, and for each wheel read the selected dist-info METADATA/WHEEL plus every other dist-info for stale version mismatches. Unfold headers, normalize Requires-Dist against the first manifest wheel, apply tag/name/sidecar rules. For each sdist, read primary PKG-INFO for rule 10 and scan other PKG-INFO members for rule 18. Sort issues by (code, path, detail)."
+verification_explanation = "Exact-match on gate_passed false, blocking_issue_count 27, manifested_artifact_count 6, disk_artifact_count 10, full sorted issue list, asc exemption, and stale dist-info/pkg-info presence tests."
 
 [verifier]
 timeout_sec = 120.0
 
 [agent]
-timeout_sec = 900.0
+timeout_sec = 2400.0
 
 [environment]
 build_timeout_sec = 600.0
