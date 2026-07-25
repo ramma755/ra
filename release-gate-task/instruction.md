@@ -56,7 +56,7 @@ Exact detail templates (substitute braced values only):
 16. `MISSING_SIGNATURE_SIDECAR` — when `require_wheel_signature_sidecars` is true, `{basename}.asc` missing.
     detail: `missing required signature sidecar {sidecar_basename}`
 
-17. `STALE_DIST_INFO_VERSION_MISMATCH` — other `*.dist-info/METADATA` `Version` not PEP 440-equal to manifest entry `version`.
+17. `STALE_DIST_INFO_VERSION_MISMATCH` — other `*.dist-info/METADATA` `Version` not PEP 440-equal to manifest entry `version`. For `{dist_info_name}`, use the directory basename with the `.dist-info` suffix removed; e.g. `widgetlib-2.0.9.dist-info/` → `widgetlib-2.0.9`.
     detail: `stale dist-info {dist_info_name} Version {stale_version} is not PEP 440-equal to manifest version {manifest_version}`
 
 18. `STALE_PKGINFO_VERSION_MISMATCH` — non-primary `PKG-INFO` `Version` not PEP 440-equal to `release_version`.
