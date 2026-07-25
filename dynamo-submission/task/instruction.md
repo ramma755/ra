@@ -1,67 +1,65 @@
-A Python library release bundle is staged under `/app/bundle/`. The manifest at `/app/bundle/manifest.json` lists the artifacts that are supposed to ship, `/app/bundle/policy.json` states release-policy rules, and the built files live in `/app/bundle/artifacts/`.
+A Python release bundle is under `/app/bundle/` (`manifest.json`, `policy.json`, `artifacts/`). Audit it and write `/app/release_gate.json`. Do not modify `/app/bundle/`.
 
-Audit the bundle and write `/app/release_gate.json`. Do not modify any file under `/app/bundle/`.
+The report is one JSON object with exactly:
+- `release_version`: string from `manifest.json` `release_version`
+- `gate_passed`: boolean, true only with zero blocking issues
+- `blocking_issue_count`: integer, length of `blocking_issues`
+- `blocking_issues`: array of `{code, path, detail}` objects, sorted ascending by (`code`, `path`, `detail`) as UTF-8 strings
+- `manifested_artifact_count`: integer, `manifest.json` `artifacts` length
+- `disk_artifact_count`: integer, regular files directly under `/app/bundle/artifacts/` (not subdirectories)
 
-The report must be a single JSON object with exactly these keys:
-- `release_version`: string, copied from `manifest.json` `release_version`.
-- `gate_passed`: boolean, true only when there are zero blocking issues.
-- `blocking_issue_count`: integer, the number of entries in `blocking_issues`.
-- `blocking_issues`: array of objects, each with keys `code` (string), `path` (string), and `detail` (string). Sort the array ascending by (`code`, `path`, `detail`) as UTF-8 strings.
-- `manifested_artifact_count`: integer, the number of entries in `manifest.json` `artifacts`.
-- `disk_artifact_count`: integer, the number of regular files directly under `/app/bundle/artifacts/` (not subdirectories).
+`path` is the artifact basename for file issues, or `""` for manifest-level issues.
 
-Path convention: `path` is always the artifact basename (filename only) for file-specific issues, or the empty string `""` for manifest-level issues.
+Emit every applicable issue — do not deduplicate. If a `.tar.gz` is on disk but not in `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
 
-When the same root cause triggers multiple rules, emit every applicable issue — do not deduplicate. In particular, if a `.tar.gz` file is present on disk but absent from `manifest.json` while `policy.require_sdist_in_manifest` is true, you must emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
+Use PEP 440 for versions. Unfold RFC 822 continuation lines in `METADATA`/`PKG-INFO` (leading-space lines append to the prior header). Normalize each unfolded `Requires-Dist` to lowercase name plus `=={specifier}` when present (else name only); compare sorted sets across wheels.
 
-Compare versions using PEP 440 rules (e.g. `2.0.9` and `2.0.9.post1` are not equal). When reading `METADATA` or `PKG-INFO`, unfold RFC 822 header continuation lines (a physical line that begins with one or more spaces appends to the previous header value). Normalize each unfolded `Requires-Dist` line to lowercase package name plus `=={specifier}` when a version specifier is present (omit `==` when there is no specifier), then compare sorted sets across wheels.
+Use the exact detail template for each violation (substitute only braced values):
 
-Emit a blocking issue for every rule violation below (the same file may trigger multiple issues). Use the exact detail template shown (substitute only the braced values):
-
-1. `UNMANIFESTED_ARTIFACT` — file on disk not listed in manifest.
+1. `UNMANIFESTED_ARTIFACT` — disk file not in manifest.
    detail: `file exists under artifacts/ but is not listed in manifest.json`
 
 2. `MISSING_ARTIFACT` — manifest entry missing on disk.
    detail: `manifest entry is absent from artifacts/`
 
-3. `CHECKSUM_MISMATCH` — SHA-256 (lowercase hex) of file bytes != manifest `sha256`.
+3. `CHECKSUM_MISMATCH` — file SHA-256 (lowercase hex) != manifest `sha256`.
    detail: `sha256 {computed} != manifest {expected}`
 
 4. `SIZE_MISMATCH` — byte length != manifest `size_bytes`.
    detail: `size {actual} != manifest {expected}`
 
-5. `METADATA_VERSION_MISMATCH` — for a manifested `.whl`, `METADATA` `Version` is not PEP 440-equal to that entry's `version` field in `manifest.json`.
+5. `METADATA_VERSION_MISMATCH` — manifested `.whl` `METADATA` `Version` not PEP 440-equal to manifest entry `version`.
    detail: `METADATA Version {metadata_version} is not PEP 440-equal to manifest version {manifest_version}`
 
-6. `FORBIDDEN_WHEEL_TAG` — for a manifested `.whl`, the wheel tag (last three hyphen-separated segments before `.whl`) contains a `policy.json` `forbidden_tag_substrings` entry.
+6. `FORBIDDEN_WHEEL_TAG` — manifested `.whl` tag (last three hyphen segments before `.whl`) contains a `forbidden_tag_substrings` entry.
    detail: `wheel tag contains forbidden substring '{substring}'`
 
-7. `PYTHON_TAG_BELOW_MINIMUM` — for a manifested `.whl` whose tag contains `cpNNN`, derive CPython `3.N` (e.g. `cp310` → `3.10`) and compare to `policy.minimum_python_version` using PEP 440 version ordering.
+7. `PYTHON_TAG_BELOW_MINIMUM` — manifested `.whl` with `cpNNN` in tag: derive CPython `3.N` (`cp310` → `3.10`) and compare to `minimum_python_version` via PEP 440.
    detail: `wheel tag implies Python 3.{minor}, below policy minimum_python_version {policy_version}`
 
-8. `REQUIRES_DIST_MISMATCH` — when `policy.requires_dist_must_match_across_wheels` is true, a manifested `.whl`'s normalized `Requires-Dist` set differs from the first manifested `.whl` in `manifest.json` `artifacts` array order.
+8. `REQUIRES_DIST_MISMATCH` — when `requires_dist_must_match_across_wheels` is true, normalized `Requires-Dist` differs from the first manifest `.whl`.
    detail: `Requires-Dist set differs from {reference_basename}`
 
-9. `SDIST_MISSING_FROM_MANIFEST` — `policy.require_sdist_in_manifest` is true and no manifest `artifacts.path` ends in `.tar.gz`.
+9. `SDIST_MISSING_FROM_MANIFEST` — `require_sdist_in_manifest` true and no manifest path ends in `.tar.gz`.
    detail: `policy requires a .tar.gz entry in manifest.json but none is listed`
 
-10. `SDIST_METADATA_VERSION_MISMATCH` — for every `.tar.gz` under `artifacts/`, `PKG-INFO` `Version` is not PEP 440-equal to `manifest.json` `release_version`.
+10. `SDIST_METADATA_VERSION_MISMATCH` — every `.tar.gz` `PKG-INFO` `Version` not PEP 440-equal to `release_version`.
     detail: `PKG-INFO Version {pkginfo_version} is not PEP 440-equal to release_version {release_version}`
 
-11. `WHEEL_RELEASE_VERSION_MISMATCH` — for a manifested `.whl`, `METADATA` `Version` is not PEP 440-equal to `manifest.json` `release_version`.
+11. `WHEEL_RELEASE_VERSION_MISMATCH` — manifested `.whl` `METADATA` `Version` not PEP 440-equal to `release_version`.
     detail: `METADATA Version {metadata_version} is not PEP 440-equal to release_version {release_version}`
 
-12. `WHEEL_FILENAME_VERSION_MISMATCH` — for a manifested `.whl`, the version segment in the filename (the second hyphen-separated field of the basename per PEP 427) is not PEP 440-equal to that manifest entry's `version` field.
+12. `WHEEL_FILENAME_VERSION_MISMATCH` — manifested `.whl` filename version (second hyphen field per PEP 427) not PEP 440-equal to manifest entry `version`.
     detail: `wheel filename version {filename_version} is not PEP 440-equal to manifest version {manifest_version}`
 
-13. `METADATA_NAME_MISMATCH` — for a manifested `.whl`, the PEP 503-normalized `METADATA` `Name` (lowercase; collapse each run of `.`, `-`, or `_` to a single `-`) is not equal to the PEP 503-normalized `manifest.json` `project` field.
+13. `METADATA_NAME_MISMATCH` — PEP 503-normalized `METADATA` `Name` != normalized `manifest.json` `project`.
     detail: `METADATA Name {metadata_name} normalizes to {normalized_metadata_name}, manifest project {project_name} normalizes to {normalized_project_name}`
 
-14. `MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH` — for a manifested artifact, that entry's `version` field is not PEP 440-equal to `manifest.json` `release_version`.
+14. `MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH` — manifest entry `version` not PEP 440-equal to `release_version`.
     detail: `manifest artifact version {artifact_version} is not PEP 440-equal to release_version {release_version}`
 
-15. `WHEEL_INTERNAL_TAG_MISMATCH` — for a manifested `.whl`, the `Tag:` line in the embedded `WHEEL` file is not identical to the filename-derived wheel tag (the last three hyphen-separated segments before `.whl`).
+15. `WHEEL_INTERNAL_TAG_MISMATCH` — embedded `WHEEL` `Tag:` != filename-derived wheel tag.
     detail: `WHEEL file Tag {internal_tag} differs from filename wheel tag {filename_tag}`
 
-16. `MISSING_SIGNATURE_SIDECAR` — when `policy.require_wheel_signature_sidecars` is true, a manifested `.whl` has no `{basename}.asc` file in `artifacts/`.
+16. `MISSING_SIGNATURE_SIDECAR` — when `require_wheel_signature_sidecars` is true, `{basename}.asc` missing from `artifacts/`.
     detail: `missing required signature sidecar {sidecar_basename}`
