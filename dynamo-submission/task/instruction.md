@@ -1,6 +1,6 @@
 A Python release bundle is under `/app/bundle/` (`manifest.json`, `policy.json`, `artifacts/`). Audit it and write `/app/release_gate.json`. Do not modify `/app/bundle/`.
 
-Report JSON keys: `release_version` (from manifest), `gate_passed` (true only with zero issues), `blocking_issue_count`, `blocking_issues` (`{code,path,detail}` sorted by (`code`,`path`,`detail`) UTF-8), `manifested_artifact_count`, `disk_artifact_count` (regular files directly under `/app/bundle/artifacts/`, not subdirectories). Files inside subdirectories (e.g. `artifacts/_internal/README.txt`) are not counted as on-disk artifacts and must not be reported as `UNMANIFESTED_ARTIFACT`.
+Report JSON keys: `release_version` (from manifest), `gate_passed` (true only with zero issues), `blocking_issue_count`, `blocking_issues` (`{code,path,detail}` sorted by (`code`,`path`,`detail`) UTF-8), `manifested_artifact_count`, `disk_artifact_count` (regular files directly under `/app/bundle/artifacts/`, not subdirectories). Files inside subdirectories (e.g. `/app/bundle/artifacts/_internal/README.txt`) are not counted as on-disk artifacts and must not be reported as `UNMANIFESTED_ARTIFACT`.
 
 `path` is the artifact basename for file issues, or `""` for manifest-level issues. Emit every applicable issue — do not deduplicate. If a `.tar.gz` is on disk but not in `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
 
@@ -8,7 +8,7 @@ Use PEP 440. Hash on-disk bytes only (ignore `SHA256SUMS`). Unfold RFC 822 conti
 
 Exact detail templates (substitute braced values only):
 
-1. `UNMANIFESTED_ARTIFACT` — disk file not in manifest (unless exempt).
+1. `UNMANIFESTED_ARTIFACT` — regular file directly under `/app/bundle/artifacts/` that is not in `manifest.json` (unless exempt by `unmanifested_exempt_globs`). Files inside subdirectories are ignored.
    detail: `file exists under artifacts/ but is not listed in manifest.json`
 
 2. `MISSING_ARTIFACT` — manifest entry missing on disk.
