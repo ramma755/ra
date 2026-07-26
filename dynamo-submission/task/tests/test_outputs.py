@@ -5,11 +5,13 @@ REPORT = Path("/app/release_gate.json")
 
 EXPECTED_ISSUES = json.loads(
     """[
+    {"code": "CHECKSUM_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "sha256 6f1d4d2f6df61120eb8d216aa7a5dd5b5f46e5f3ad7d9b70e931e6457ce0e9ee != manifest 0f1d4d2f6df61120eb8d216aa7a5dd5b5f46e5f3ad7d9b70e931e6457ce0e9ee"},
     {"code": "FORBIDDEN_WHEEL_TAG", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "wheel tag contains forbidden substring 'manylinux2014'"},
     {"code": "MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "manifest artifact version 2.0.9.dev0 is not PEP 440-equal to release_version 2.0.9"},
     {"code": "MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH", "path": "widgetlib-2.0.9-py3-none-any.whl", "detail": "manifest artifact version 2.0.9.post1 is not PEP 440-equal to release_version 2.0.9"},
     {"code": "METADATA_NAME_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "METADATA Name Widget_Lib normalizes to widget-lib, manifest project widgetlib normalizes to widgetlib"},
     {"code": "METADATA_VERSION_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "METADATA Version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.dev0"},
+    {"code": "MISSING_ARTIFACT", "path": "widgetlib-2.0.9-cp313-cp313-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "manifest entry is absent from artifacts/"},
     {"code": "MISSING_SIGNATURE_SIDECAR", "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "missing required signature sidecar widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl.asc"},
     {"code": "MISSING_SIGNATURE_SIDECAR", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "missing required signature sidecar widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl.asc"},
     {"code": "MISSING_SIGNATURE_SIDECAR", "path": "widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "missing required signature sidecar widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl.asc"},
@@ -21,9 +23,11 @@ EXPECTED_ISSUES = json.loads(
     {"code": "REQUIRES_DIST_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl", "detail": "Requires-Dist set differs from widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl"},
     {"code": "SDIST_METADATA_VERSION_MISMATCH", "path": "widgetlib-2.0.9.tar.gz", "detail": "PKG-INFO Version 2.0.8 is not PEP 440-equal to release_version 2.0.9"},
     {"code": "SDIST_MISSING_FROM_MANIFEST", "path": "", "detail": "policy requires a .tar.gz entry in manifest.json but none is listed"},
+    {"code": "SIZE_MISMATCH", "path": "widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "size 888 != manifest 905"},
     {"code": "STALE_DIST_INFO_VERSION_MISMATCH", "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "stale dist-info widgetlib-2.0.8 Version 2.0.8 is not PEP 440-equal to manifest version 2.0.9"},
     {"code": "STALE_DIST_INFO_VERSION_MISMATCH", "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl", "detail": "stale dist-info widgetlib-2.0.9 Version 2.0.8 is not PEP 440-equal to manifest version 2.0.09"},
     {"code": "STALE_DIST_INFO_VERSION_MISMATCH", "path": "widgetlib-2.0.9-py3-none-any.whl", "detail": "stale dist-info widgetlib-2.0.9 Version 2.0.9 is not PEP 440-equal to manifest version 2.0.9.post1"},
+    {"code": "STALE_PKGINFO_VERSION_MISMATCH", "path": "widgetlib-2.0.9.tar.gz", "detail": "stale PKG-INFO at widgetlib-2.0.8/PKG-INFO Version 1.0.0 is not PEP 440-equal to release_version 2.0.9"},
     {"code": "STALE_PKGINFO_VERSION_MISMATCH", "path": "widgetlib-2.0.9.tar.gz", "detail": "stale PKG-INFO at widgetlib-2.0.9/stale/PKG-INFO Version 2.0.7 is not PEP 440-equal to release_version 2.0.9"},
     {"code": "UNMANIFESTED_ARTIFACT", "path": ".buildmeta", "detail": "file exists under artifacts/ but is not listed in manifest.json"},
     {"code": "UNMANIFESTED_ARTIFACT", "path": "SHA256SUMS", "detail": "file exists under artifacts/ but is not listed in manifest.json"},
@@ -74,9 +78,9 @@ def test_gate_passed_is_false():
 
 
 def test_blocking_issue_count():
-    """blocking_issue_count must equal the number of blocking issues (27)."""
+    """blocking_issue_count must equal the number of blocking issues (31)."""
     data = _load()
-    assert data["blocking_issue_count"] == 27
+    assert data["blocking_issue_count"] == 31
     assert data["blocking_issue_count"] == len(data["blocking_issues"])
 
 
@@ -95,7 +99,7 @@ def test_sdist_double_emission_required():
 
 
 def test_asc_sidecar_exempt_from_unmanifested():
-    """*.asc files exempted by policy must not appear as UNMANIFESTED_ARTIFACT."""
+    """Files matching unmanifested_exempt_globs (*.asc) must not emit UNMANIFESTED_ARTIFACT."""
     issues = _load()["blocking_issues"]
     asc_unmanifested = [
         i for i in issues if i["code"] == "UNMANIFESTED_ARTIFACT" and i["path"].endswith(".asc")
@@ -103,18 +107,31 @@ def test_asc_sidecar_exempt_from_unmanifested():
     assert asc_unmanifested == []
 
 
-def test_stale_dist_info_issues_present():
-    """STALE_DIST_INFO_VERSION_MISMATCH must be emitted for decoy dist-info trees."""
+def test_stale_metadata_enumeration():
+    """STALE_DIST_INFO_VERSION_MISMATCH and STALE_PKGINFO_VERSION_MISMATCH must be emitted."""
     codes = {i["code"] for i in _load()["blocking_issues"]}
     assert "STALE_DIST_INFO_VERSION_MISMATCH" in codes
     assert "STALE_PKGINFO_VERSION_MISMATCH" in codes
 
 
+def test_checksum_and_size_mismatch_present():
+    """Corrupted manifest sha256/size must produce CHECKSUM_MISMATCH and SIZE_MISMATCH."""
+    codes = {i["code"] for i in _load()["blocking_issues"]}
+    assert "CHECKSUM_MISMATCH" in codes
+    assert "SIZE_MISMATCH" in codes
+
+
+def test_missing_artifact_present():
+    """A manifested path absent from disk must produce MISSING_ARTIFACT."""
+    codes = {i["code"] for i in _load()["blocking_issues"]}
+    assert "MISSING_ARTIFACT" in codes
+
+
 def test_manifested_artifact_count():
-    """manifested_artifact_count must equal manifest.json artifact entries (6)."""
-    assert _load()["manifested_artifact_count"] == 6
+    """manifested_artifact_count must equal manifest.json artifact entries (7)."""
+    assert _load()["manifested_artifact_count"] == 7
 
 
 def test_disk_artifact_count():
-    """disk_artifact_count must equal files under /app/bundle/artifacts/ (10)."""
+    """disk_artifact_count must equal regular files directly under artifacts/ (10)."""
     assert _load()["disk_artifact_count"] == 10

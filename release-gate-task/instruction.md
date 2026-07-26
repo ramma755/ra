@@ -4,7 +4,7 @@ Report JSON keys: `release_version` (from manifest), `gate_passed` (true only wi
 
 `path` is the artifact basename for file issues, or `""` for manifest-level issues. Emit every applicable issue — do not deduplicate. If a `.tar.gz` is on disk but not in `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
 
-Use PEP 440. Hash on-disk bytes only (ignore `SHA256SUMS`). Unfold RFC 822 continuation lines in `METADATA`/`PKG-INFO`. Wheels: use `{project}-{manifest_entry.version}.dist-info/METADATA` for rules 5 and 8–15; scan other `*.dist-info/METADATA` for rule 17. `.tar.gz`: use `{basename_without_suffix}/PKG-INFO` for rule 10; other `*/PKG-INFO` members for rule 18. Strip PEP 508 markers and extras from `Requires-Dist` before normalizing to lowercase name plus `=={specifier}` (else name only); compare sorted sets across wheels. Skip `UNMANIFESTED_ARTIFACT` for files matching `policy.unmanifested_exempt_globs` (shell globs).
+Use PEP 440. Hash on-disk bytes only (ignore `SHA256SUMS`). Unfold RFC 822 continuation lines in `METADATA`/`PKG-INFO`. Wheels: select `{project}-{manifest_entry.version}.dist-info/METADATA` using the literal `version` string from the manifest entry (do not PEP-440-normalize the path segment) for rules 5 and 8–15; scan every other `*.dist-info/METADATA` for rule 17. For rule 15, use only the first `Tag:` line in the selected dist-info `WHEEL` file (ignore later `Tag:` lines). `.tar.gz`: use exactly `{basename_without_suffix}/PKG-INFO` for rule 10 (not the first PKG-INFO member); every other `*/PKG-INFO` member for rule 18. Strip PEP 508 markers and extras from `Requires-Dist` before normalizing to lowercase name plus `=={specifier}` where `{specifier}` is the packaging SpecifierSet string (else name only); compare sorted sets across wheels against the first `.whl` in manifest order. Skip `UNMANIFESTED_ARTIFACT` for files matching `policy.unmanifested_exempt_globs` (shell globs).
 
 Exact detail templates (substitute braced values only):
 
@@ -26,7 +26,7 @@ Exact detail templates (substitute braced values only):
 6. `FORBIDDEN_WHEEL_TAG` — wheel tag (last three hyphen segments before `.whl`) contains a `forbidden_tag_substrings` entry.
    detail: `wheel tag contains forbidden substring '{substring}'`
 
-7. `PYTHON_TAG_BELOW_MINIMUM` — `cpNNN` in tag implies CPython `3.N` below `minimum_python_version` (PEP 440).
+7. `PYTHON_TAG_BELOW_MINIMUM` — `cpNNN` in tag implies CPython `3.N` below `minimum_python_version` (PEP 440), including `abi3` tags.
    detail: `wheel tag implies Python 3.{minor}, below policy minimum_python_version {policy_version}`
 
 8. `REQUIRES_DIST_MISMATCH` — when `requires_dist_must_match_across_wheels` is true, normalized set differs from the first manifest `.whl`.
@@ -50,7 +50,7 @@ Exact detail templates (substitute braced values only):
 14. `MANIFEST_ARTIFACT_RELEASE_VERSION_MISMATCH` — manifest entry `version` not PEP 440-equal to `release_version`.
     detail: `manifest artifact version {artifact_version} is not PEP 440-equal to release_version {release_version}`
 
-15. `WHEEL_INTERNAL_TAG_MISMATCH` — embedded `WHEEL` `Tag:` != filename-derived wheel tag.
+15. `WHEEL_INTERNAL_TAG_MISMATCH` — first embedded `WHEEL` `Tag:` != filename-derived wheel tag.
     detail: `WHEEL file Tag {internal_tag} differs from filename wheel tag {filename_tag}`
 
 16. `MISSING_SIGNATURE_SIDECAR` — when `require_wheel_signature_sidecars` is true, `{basename}.asc` missing.

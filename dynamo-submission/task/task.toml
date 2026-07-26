@@ -9,12 +9,12 @@ category = "build_dependency_and_release_management"
 subcategory = "release_artifacts"
 task_objective = ["validate", "analyze"]
 artifact_type = ["archive_or_compressed_artifact", "configuration_file", "generated_output_artifact"]
-expert_time_estimate_hours = 3.5
+expert_time_estimate_hours = 4.0
 model_tested = "GPT-5.4"
 agent_tested = "Terminus-2"
-difficulty_explanation = "A release engineer gates a synthetic fixture bundle before PyPI publish. Checksums pass on all six wheels. Agents must select the correct dist-info path, scan non-selected dist-info trees and non-primary PKG-INFO members, honor exempt .asc files, ignore stale SHA256SUMS, count dotfiles, use cp312 as the Requires-Dist reference, and apply eighteen rules with exact detail strings. Twenty-seven exact issues; PEP 440 compares, stale metadata enumeration, and detail-string formatting are the main failure modes."
-solution_explanation = "Load manifest and policy, enumerate artifact files, apply unmanifested exemptions, hash manifest entries, and for each wheel read the selected dist-info METADATA/WHEEL plus every other dist-info for stale version mismatches. Unfold headers, normalize Requires-Dist against the first manifest wheel, apply tag/name/sidecar rules. For each sdist, read primary PKG-INFO for rule 10 and scan other PKG-INFO members for rule 18. Sort issues by (code, path, detail)."
-verification_explanation = "Exact-match on gate_passed false, blocking_issue_count 27, manifested_artifact_count 6, disk_artifact_count 10, full sorted issue list, asc exemption, and stale dist-info/pkg-info presence tests."
+difficulty_explanation = "A release engineer gates a synthetic fixture bundle before PyPI publish. One wheel has corrupted sha256/size; one manifest path is missing on disk. Agents must select the literal manifest-version dist-info path (not PEP-440-normalized), take the first WHEEL Tag: line, ignore later Tag: decoys, scan non-selected dist-info and non-primary PKG-INFO (including members listed before the primary), strip Requires-Dist extras/markers, honor exempt .asc files, ignore SHA256SUMS, count .buildmeta, skip subdirectory files, and emit thirty-one exact issues across eighteen rules."
+solution_explanation = "Load manifest and policy, enumerate direct artifact files with exemptions, hash and size-check each present entry, and for each wheel read the selected dist-info METADATA/WHEEL (first Tag:) plus every other dist-info for stale versions. Unfold headers, normalize Requires-Dist against the first manifest wheel, apply tag/name/sidecar rules. For each sdist, read exactly basename/PKG-INFO for rule 10 and scan other PKG-INFO members for rule 18. Sort issues by (code, path, detail)."
+verification_explanation = "Exact-match on gate_passed false, blocking_issue_count 31, manifested_artifact_count 7, disk_artifact_count 10, full sorted issue list, asc exemption, checksum/size/missing presence, and stale dist-info/pkg-info presence tests."
 
 [verifier]
 timeout_sec = 120.0
