@@ -2,13 +2,13 @@ A Python release bundle is under `/app/bundle/` (`manifest.json`, `policy.json`,
 
 Report keys: `release_version` (from manifest), `gate_passed` (true iff zero issues), `blocking_issue_count`, `blocking_issues` (`{code,path,detail}` sorted by (`code`,`path`,`detail`) UTF-8), `manifested_artifact_count`, `disk_artifact_count` (regular files directly under `/app/bundle/artifacts/` only). Subdirectory files (e.g. `/app/bundle/artifacts/_internal/README.txt`) are neither counted nor reported as `UNMANIFESTED_ARTIFACT`.
 
-`path` is the artifact basename, or `""` for manifest-level issues. Emit every applicable issue (no dedup). If a `.tar.gz` is on disk but absent from `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
+`path` is the artifact basename, or `""` for manifest-level issues. Emit all applicable issues. If a `.tar.gz` is on disk but absent from `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`. If a manifest entry is absent from disk, emit only `MISSING_ARTIFACT` for it — skip checksum, size, metadata, tag, sidecar, and other per-artifact rules.
 
-Use PEP 440. Hash on-disk bytes only (ignore `SHA256SUMS`). Unfold RFC 822 continuations in `METADATA`/`PKG-INFO`. Wheels: select `{project}-{manifest_entry.version}.dist-info/METADATA` with the literal manifest `version` string (do not normalize the path) for rules 5 and 8–15; scan other `*.dist-info/METADATA` for rule 17. Rule 15 uses only the first `Tag:` in that dist-info `WHEEL`. `.tar.gz`: primary `{basename_without_suffix}/PKG-INFO` for rule 10; other `*/PKG-INFO` for rule 18. Strip PEP 508 markers and extras from `Requires-Dist`, then normalize to lowercase name plus `=={specifier}` (`{specifier}` = packaging SpecifierSet string) or name only; compare sorted sets to the first manifest `.whl`. Skip `UNMANIFESTED_ARTIFACT` when the basename matches `policy.unmanifested_exempt_globs`.
+Use PEP 440. Hash on-disk bytes only (ignore `SHA256SUMS`). Unfold RFC 822 continuations in `METADATA`/`PKG-INFO`. Wheels: select `{project}-{manifest_entry.version}.dist-info/METADATA` with the literal manifest `version` string (no path normalization) for rules 5 and 8–15; scan other `*.dist-info/METADATA` for rule 17. Rule 15 uses only the first `Tag:` in that dist-info `WHEEL`. `.tar.gz`: primary `{basename_without_suffix}/PKG-INFO` for rule 10; other `*/PKG-INFO` for rule 18. Strip PEP 508 markers and extras from `Requires-Dist`, then normalize to lowercase name plus `=={specifier}` (`{specifier}` = packaging SpecifierSet string) or name only; compare sorted sets to the first manifest `.whl`. Skip `UNMANIFESTED_ARTIFACT` when the basename matches `policy.unmanifested_exempt_globs`.
 
-Exact detail templates (substitute braced values only):
+Exact detail templates (braced values only):
 
-1. `UNMANIFESTED_ARTIFACT` — regular file directly under `/app/bundle/artifacts/` not in `manifest.json` (unless exempt). Ignore subdirectory files.
+1. `UNMANIFESTED_ARTIFACT` — regular file directly under `/app/bundle/artifacts/` not in `manifest.json` (unless exempt). Ignore subdirs.
    detail: `file exists under artifacts/ but is not listed in manifest.json`
 
 2. `MISSING_ARTIFACT` — manifest entry missing on disk.
@@ -53,10 +53,10 @@ Exact detail templates (substitute braced values only):
 15. `WHEEL_INTERNAL_TAG_MISMATCH` — first `WHEEL` `Tag:` != filename wheel tag.
     detail: `WHEEL file Tag {internal_tag} differs from filename wheel tag {filename_tag}`
 
-16. `MISSING_SIGNATURE_SIDECAR` — when `require_wheel_signature_sidecars` is true, `{basename}.asc` missing.
-    detail: `missing required signature sidecar {sidecar_basename}`
+16. `MISSING_SIGNATURE_SIDECAR` — for an on-disk wheel, when `require_wheel_signature_sidecars` is true, `{basename}.asc` missing.
+   detail: `missing required signature sidecar {sidecar_basename}`
 
-17. `STALE_DIST_INFO_VERSION_MISMATCH` — other `*.dist-info/METADATA` `Version` not PEP 440-equal to manifest entry `version`. `{dist_info_name}` is the directory basename without `.dist-info` (e.g. `widgetlib-2.0.9.dist-info/` → `widgetlib-2.0.9`).
+17. `STALE_DIST_INFO_VERSION_MISMATCH` — other `*.dist-info/METADATA` `Version` not PEP 440-equal to manifest entry `version`. `{dist_info_name}` is the directory basename without `.dist-info`.
     detail: `stale dist-info {dist_info_name} Version {stale_version} is not PEP 440-equal to manifest version {manifest_version}`
 
 18. `STALE_PKGINFO_VERSION_MISMATCH` — non-primary `PKG-INFO` `Version` not PEP 440-equal to `release_version`.

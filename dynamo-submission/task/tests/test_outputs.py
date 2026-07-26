@@ -135,3 +135,10 @@ def test_manifested_artifact_count():
 def test_disk_artifact_count():
     """disk_artifact_count must equal regular files directly under artifacts/ (10)."""
     assert _load()["disk_artifact_count"] == 10
+
+def test_missing_artifact_no_sidecar_cascade():
+    """Absent manifest entries emit only MISSING_ARTIFACT (no MISSING_SIGNATURE_SIDECAR)."""
+    missing = "widgetlib-2.0.9-cp313-cp313-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl"
+    issues = [i for i in _load()["blocking_issues"] if i["path"] == missing]
+    assert [i["code"] for i in issues] == ["MISSING_ARTIFACT"]
+
