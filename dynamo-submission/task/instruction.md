@@ -1,6 +1,6 @@
 A Python release bundle is under `/app/bundle/` (`manifest.json`, `policy.json`, `artifacts/`). Audit it and write `/app/release_gate.json`. Do not modify `/app/bundle/`.
 
-Report JSON keys: `release_version` (from manifest), `gate_passed` (true only with zero issues), `blocking_issue_count`, `blocking_issues` (`{code,path,detail}` sorted by (`code`,`path`,`detail`) UTF-8), `manifested_artifact_count`, `disk_artifact_count` (regular files directly under `/app/bundle/artifacts/`, not subdirectories).
+Report JSON keys: `release_version` (from manifest), `gate_passed` (true only with zero issues), `blocking_issue_count`, `blocking_issues` (`{code,path,detail}` sorted by (`code`,`path`,`detail`) UTF-8), `manifested_artifact_count`, `disk_artifact_count` (regular files directly under `/app/bundle/artifacts/`, not subdirectories). Files inside subdirectories (e.g. `artifacts/_internal/README.txt`) are not counted as on-disk artifacts and must not be reported as `UNMANIFESTED_ARTIFACT`.
 
 `path` is the artifact basename for file issues, or `""` for manifest-level issues. Emit every applicable issue — do not deduplicate. If a `.tar.gz` is on disk but not in `manifest.json` while `policy.require_sdist_in_manifest` is true, emit both `SDIST_MISSING_FROM_MANIFEST` and `UNMANIFESTED_ARTIFACT`.
 
