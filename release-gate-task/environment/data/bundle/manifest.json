@@ -6,43 +6,50 @@
       "path": "widgetlib-2.0.9-cp312-cp312-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.09",
-      "sha256": "8fe61a2c015950e55d024f9fad850103d1a175dd36e15cb9062201b813208e46",
-      "size_bytes": 1538
+      "sha256": "0fe54c2e7a526cdd1b47326cbe566214824731054e22a1d1eddf0ca19b14f3db",
+      "size_bytes": 1573
     },
     {
       "path": "widgetlib-2.0.9-py3-none-any.whl",
       "kind": "wheel",
       "version": "2.0.9.post1",
-      "sha256": "eca8606b34c8a8917897279d6db748ddb4431d56f9088ecf305aa084ad80f022",
-      "size_bytes": 1487
+      "sha256": "d7b56415691a2779c79566d44fcb07e9d802a68a99dfdcee851c09a3f143b7ad",
+      "size_bytes": 1523
     },
     {
       "path": "widgetlib-2.0.9-cp310-cp310-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "ecfcecb11b0a49f648eed498d6138560c6ad58d8552ea2782f6c4e6a26ff5a71",
-      "size_bytes": 1440
+      "sha256": "af2a91bd580573fcc9cdaad8feae9e56061d0d296d70d92485b3cdcea8197264",
+      "size_bytes": 1562
     },
     {
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux2014_x86_64.manylinux2014_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9.dev0",
-      "sha256": "a65197a79999e5b31d840f82a4cbbce20de90a45817feeac49a494765f0825d7",
+      "sha256": "cc7730171218514aabded663f32913b17b302e6d9a567984657a22c09d1b5c40",
       "size_bytes": 921
     },
     {
       "path": "widgetlib-2.0.9-cp39-abi3-linux_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "e0de8ee004f7ce3408a4c050a2d89120553c74553f470f450946638f5bea1e89",
-      "size_bytes": 832
+      "sha256": "ad2a884383e619646eaac411d0ad1d443ad3ff5879103caf7509d3d6037d1bb5",
+      "size_bytes": 867
     },
     {
       "path": "widgetlib-2.0.9-cp311-cp311-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
       "kind": "wheel",
       "version": "2.0.9",
-      "sha256": "1cc1f01a7f114e387eac12da14c0710d00747b0289d31b9874c5f1845db925a4",
-      "size_bytes": 865
+      "sha256": "0f1d4d2f6df61120eb8d216aa7a5dd5b5f46e5f3ad7d9b70e931e6457ce0e9ee",
+      "size_bytes": 905
+    },
+    {
+      "path": "widgetlib-2.0.9-cp313-cp313-manylinux_2_28_x86_64.manylinux_2_28_x86_64.whl",
+      "kind": "wheel",
+      "version": "2.0.9",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 1
     }
   ]
 }
