@@ -5,7 +5,7 @@ set -euo pipefail
 REPO="handshake-project-dynamo/dynamo-342b8ef-build-dependency-and-release-management"
 FORK="ramma755/dynamo-342b8ef-build-dependency-and-release-management"
 BRANCH="submission"
-TASK_REF="cursor/dynamo-release-gate-5517"
+TASK_REF="cursor/release-gate-pass2-harder-27b6"
 RA_REPO="ramma755/ra"
 
 WORKDIR="${1:-$HOME/dynamo-task-deploy}"
