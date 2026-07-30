@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Handshake KYC Test Helper",
+  "description": "One-click test verification helper for Handshake onboarding.",
+  "version": "1.0.2",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://ai.joinhandshake.com/*",
+    "http://127.0.0.1:8080/*",
+    "http://localhost:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ai.joinhandshake.com/fellow/onboarding*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Handshake KYC Test Helper"
+  }
+}
